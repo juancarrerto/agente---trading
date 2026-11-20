@@ -1,9 +1,12 @@
-# Sonda de compatibilidad con Alpaca (cuenta demo). Se lanza A MANO, con el mercado abierto (9:30 a 16:00 hora de Nueva York).
+# Sonda de compatibilidad con Alpaca (cuenta demo). Con el mercado abierto (9:30 a 16:00 hora de Nueva York). Manual o programada una vez.
 # Compra 2 acciones de Ford, prueba las órdenes que usa el agente muy lejos del precio, y deja todo cerrado.
 name: Sonda de Alpaca (manual)
 
 on:
   workflow_dispatch:
+  schedule:
+    # Una sola vez: viernes 20 de noviembre de 2026, 9:35 a. m. (Nueva York), antes de la primera pasada del agente. Se borra después.
+    - cron: '35 14 20 11 *'
 
 concurrency:
   group: agente-trading

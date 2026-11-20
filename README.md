@@ -30,8 +30,8 @@ En `config/agente.json`:
 
 | Campo | Valores | Qué hace |
 |---|---|---|
-| `modo` | `"mirar"` (por defecto) | Hace todo menos enviar órdenes: escribe en la bitácora lo que haría. |
-| | `"operar"` | Envía las órdenes a la cuenta demo. |
+| `modo` | `"mirar"` | Hace todo menos enviar órdenes: escribe en la bitácora lo que haría. |
+| | `"operar"` (actual) | Envía las órdenes a la cuenta demo. |
 | `apagado` | `true` | Interruptor de emergencia: el agente no hace nada. |
 
 Interruptor sin tocar el código: en GitHub, *Settings → Secrets and variables → Actions → Variables*, crea `AGENTE_APAGADO` con valor `1`.
