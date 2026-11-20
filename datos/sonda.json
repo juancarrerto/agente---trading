@@ -1,0 +1,27 @@
+{
+ "inicio": "2026-11-20T04:16:51.760Z",
+ "simbolo": "F",
+ "pasos": [
+  {
+   "nombre": "mercado abierto",
+   "ok": false,
+   "error": "El mercado está cerrado: corre la sonda de nuevo entre las 9:30 y las 16:00 (Nueva York)."
+  },
+  {
+   "nombre": "limpieza: cancelar órdenes",
+   "ok": true,
+   "detalle": {
+    "canceladas": 0
+   }
+  },
+  {
+   "nombre": "limpieza: cerrar posición",
+   "ok": true,
+   "detalle": {
+    "quedoLimpia": true
+   }
+  }
+ ],
+ "fin": "2026-11-20T04:16:53.680Z",
+ "todoBien": false
+}
