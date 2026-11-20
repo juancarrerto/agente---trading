@@ -31,3 +31,7 @@
 {"ts":"2026-11-20T21:16:35.667Z","tipo":"CIERRE_DE_SESION","motivo":"hora de cierre del agente: se cancelan órdenes y se cierran posiciones"}
 {"ts":"2026-11-20T21:16:37.454Z","tipo":"ORDENES_EJECUTADAS_HOY","n":1,"ordenes":[{"simbolo":"F","lado":"buy","tipo":"market","qty":2,"precioPromedio":11.52,"hora":"2026-11-20T15:24:42.603566Z","cid":"ag-sonda-1795188280820-2"}]}
 {"ts":"2026-11-20T21:16:37.520Z","tipo":"FIN","motivo":"cierre","capitalDemo":"99999.96","minutos":0}
+{"ts":"2026-11-20T21:35:13.128Z","tipo":"INICIO","fecha":"2026-11-20","modo":"operar","ejecucion":"pasada","capitalDemo":"99999.96","simbolos":48}
+{"ts":"2026-11-20T21:35:13.223Z","tipo":"CIERRE_DE_SESION","motivo":"hora de cierre del agente: se cancelan órdenes y se cierran posiciones"}
+{"ts":"2026-11-20T21:35:14.756Z","tipo":"ORDENES_EJECUTADAS_HOY","n":1,"ordenes":[{"simbolo":"F","lado":"buy","tipo":"market","qty":2,"precioPromedio":11.52,"hora":"2026-11-20T15:24:42.603566Z","cid":"ag-sonda-1795188280820-2"}]}
+{"ts":"2026-11-20T21:35:14.764Z","tipo":"FIN","motivo":"cierre","capitalDemo":"99999.96","minutos":0}
