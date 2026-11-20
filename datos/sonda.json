@@ -1,17 +1,116 @@
 {
- "inicio": "2026-11-20T04:16:51.760Z",
+ "inicio": "2026-11-20T15:24:40.816Z",
  "simbolo": "F",
  "pasos": [
   {
-   "nombre": "mercado abierto",
-   "ok": false,
-   "error": "El mercado está cerrado: corre la sonda de nuevo entre las 9:30 y las 16:00 (Nueva York)."
+   "nombre": "1. compra con stop por encima del precio (se cancela enseguida)",
+   "ok": true,
+   "detalle": {
+    "estado": "pending_new"
+   }
+  },
+  {
+   "nombre": "2. compra a mercado de 2 acciones",
+   "ok": true,
+   "detalle": {
+    "estado": "pending_new",
+    "qty": 2,
+    "precioPromedio": 11.52
+   }
+  },
+  {
+   "nombre": "3.1 grupo OCO de 1 acción (objetivo 12.90, stop 10.13)",
+   "ok": true,
+   "detalle": {
+    "id": "67cfcc5a-3971-47f5-b4e0-1dcdc9c50af3",
+    "estado": "pending_new",
+    "patas": [
+     {
+      "id": "63bd2db4-1767-44ef-a3b3-660a34bf4a1e",
+      "tipo": "stop",
+      "estado": "held"
+     }
+    ]
+   }
+  },
+  {
+   "nombre": "3.2 grupo OCO de 1 acción (objetivo 12.90, stop 10.13)",
+   "ok": true,
+   "detalle": {
+    "id": "fb299aa1-aa7a-4fcc-addf-b40ff69ee531",
+    "estado": "pending_new",
+    "patas": [
+     {
+      "id": "776ce3dd-e703-49c7-804d-29bf878af925",
+      "tipo": "stop",
+      "estado": "held"
+     }
+    ]
+   }
+  },
+  {
+   "nombre": "4. listado de órdenes abiertas con patas anidadas",
+   "ok": true,
+   "detalle": {
+    "ordenesVistas": 5,
+    "ejemplo": [
+     {
+      "id": "fb299aa1-aa7a-4fcc-addf-b40ff69ee531",
+      "side": "sell",
+      "tipo": "limit",
+      "clase": "oco",
+      "estado": "pending_new",
+      "stop": null,
+      "limite": "12.9",
+      "padre": null,
+      "cid": "ag-sonda-1795188280820-oco2"
+     },
+     {
+      "id": "776ce3dd-e703-49c7-804d-29bf878af925",
+      "side": "sell",
+      "tipo": "stop",
+      "clase": "oco",
+      "estado": "held",
+      "stop": "10.13",
+      "limite": null,
+      "padre": "fb299aa1-aa7a-4fcc-addf-b40ff69ee531",
+      "cid": "187f8a8d-2299-4b56-a40a-e2b2f6270258"
+     },
+     {
+      "id": "67cfcc5a-3971-47f5-b4e0-1dcdc9c50af3",
+      "side": "sell",
+      "tipo": "limit",
+      "clase": "oco",
+      "estado": "new",
+      "stop": null,
+      "limite": "12.9",
+      "padre": null,
+      "cid": "ag-sonda-1795188280820-oco1"
+     }
+    ]
+   }
+  },
+  {
+   "nombre": "5. subir el stop de un grupo OCO (reemplazo de la pata stop)",
+   "ok": true,
+   "detalle": {
+    "pedido": "10.36",
+    "respuesta": "10.36",
+    "estado": "held"
+   }
+  },
+  {
+   "nombre": "6. compra con stop con salidas abiertas (informativo: el agente no lo hace)",
+   "ok": true,
+   "detalle": {
+    "estado": "pending_new"
+   }
   },
   {
    "nombre": "limpieza: cancelar órdenes",
    "ok": true,
    "detalle": {
-    "canceladas": 0
+    "canceladas": 3
    }
   },
   {
@@ -22,6 +121,15 @@
    }
   }
  ],
- "fin": "2026-11-20T04:16:53.680Z",
- "todoBien": false
+ "cuenta": {
+  "estado": "ACTIVE",
+  "equity": "100000",
+  "buying_power": "200000",
+  "shorting_enabled": true,
+  "multiplier": "2"
+ },
+ "precio": 11.515,
+ "ultimaVela": "2026-11-20T15:20:00Z",
+ "fin": "2026-11-20T15:24:46.274Z",
+ "todoBien": true
 }
