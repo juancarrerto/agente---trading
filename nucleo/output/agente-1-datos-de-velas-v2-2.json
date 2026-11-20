@@ -1,0 +1,194 @@
+{
+  "name": "Agente 1 - Datos de velas (v2.2, plazos del libro)",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Agente 1 · Datos de velas (v2)\n\nTrae las velas de **5 min, 15 min y diario** de TwelveData para un símbolo y las devuelve unificadas. Son los plazos de la estrategia del libro de Vélez y Capra. No incluye noticias: solo precios.\n\n**Entrada:** `symbol` (ej. `BTC/USD`, `EUR/USD`, `AAPL`)\n**Salida:** `ok`, `ticker`, `candles5m`, `candles15m`, `candles1d`, `lastPrice`, `errors`, `warnings`\n\n**Antes de usarlo**\n1. Crea la credencial *Query Auth* (nombre del parámetro: `apikey`, valor: tu clave de TwelveData).\n2. Abre el nodo *TwelveData - velas* y selecciónala.\n3. Prueba con *Disparador manual (pruebas)*. Si ejecutas el workflow entero sin símbolo, usa BTC/USD solo en pruebas a mano.\n\nSi `ok` es `false`, el orquestador NO debe operar con estos datos.",
+        "height": 400,
+        "width": 560
+      },
+      "id": "f87404df-3cbb-4705-8018-aa7430e03288",
+      "name": "Nota",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -260,
+        -200
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "2f6d6c30-26e4-4746-8eef-919d7a9aec7c",
+      "name": "Disparador manual (pruebas)",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "e4307013-e60d-426f-abb5-e1d5dceeecd3",
+              "name": "symbol",
+              "value": "BTC/USD",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "203df3f9-311f-4244-b887-5c8fd315333a",
+      "name": "Símbolo de prueba",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        240,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "b90f331a-d793-4cf4-92f9-b7ca02211f68",
+      "name": "Al ser llamado por el orquestador",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Recibe el símbolo y crea una petición por cada temporalidad.\nconst bruto = $input.first()?.json?.symbol;\nlet symbol = String(bruto ?? '').trim().toUpperCase();\n\n// Si lo ejecutas a mano en el editor y llega sin símbolo (por ejemplo, por el disparador del orquestador),\n// usa uno de prueba. Cuando lo llama el orquestador esto no se aplica y el error se mantiene.\nif (!symbol && $execution.mode === 'test') {\n  symbol = 'BTC/USD';\n}\n\nif (!symbol) {\n  throw new Error('Falta el campo \"symbol\" (ejemplos: BTC/USD, EUR/USD, AAPL).');\n}\n\nreturn ['5min', '15min', '1day'].map(interval => ({ json: { symbol, interval } }));\n"
+      },
+      "id": "76dedff1-80a3-43b8-986d-96f315de752e",
+      "name": "Preparar peticiones",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://api.twelvedata.com/time_series",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "symbol",
+              "value": "={{ $json.symbol }}"
+            },
+            {
+              "name": "interval",
+              "value": "={{ $json.interval }}"
+            },
+            {
+              "name": "outputsize",
+              "value": "500"
+            },
+            {
+              "name": "timezone",
+              "value": "UTC"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "7081bb16-190a-44ce-bfad-91567a05f79e",
+      "name": "TwelveData - velas",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        760,
+        400
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Une las 3 respuestas de TwelveData en un solo objeto de velas y valida los datos.\nconst MIN_VELAS = 200;       // el libro usa la media simple de 200 periodos en diario, 15 y 5 minutos\nconst MAX_EDAD_5M_MIN = 15;  // aviso si la última vela de 5 min es más vieja que esto\n\nconst peticiones = $('Preparar peticiones').all();\nconst respuestas = $input.all();\nconst destino = { '5min': 'candles5m', '15min': 'candles15m', '1day': 'candles1d' };\n\nfunction aISO(texto) {\n  if (!texto) return null;\n  const t = String(texto).trim();\n  const iso = t.length === 10 ? `${t}T00:00:00Z` : `${t.replace(' ', 'T')}Z`;\n  const fecha = new Date(iso);\n  return Number.isNaN(fecha.getTime()) ? null : fecha.toISOString();\n}\n\nfunction parsear(respuesta, intervalo) {\n  const j = respuesta?.json ?? {};\n\n  if (j.error) {\n    const msg = typeof j.error === 'string' ? j.error : (j.error.message || JSON.stringify(j.error));\n    return { error: `${intervalo}: falló la conexión (${msg})` };\n  }\n  if (j.status === 'error' || Number(j.code) >= 400) {\n    const detalle = `${j.code ?? ''} ${j.message ?? ''}`.replace(/\\s+/g, ' ').trim();\n    return { error: `${intervalo}: TwelveData respondió ${detalle}` };\n  }\n  if (!Array.isArray(j.values) || j.values.length === 0) {\n    return { error: `${intervalo}: la respuesta no trae velas` };\n  }\n\n  const velas = j.values\n    .map(v => ({\n      time: aISO(v.datetime),\n      open: Number(v.open),\n      high: Number(v.high),\n      low: Number(v.low),\n      close: Number(v.close),\n      volume: Number(v.volume || 0)\n    }))\n    .filter(c => c.time && [c.open, c.high, c.low, c.close].every(Number.isFinite) && c.high >= c.low)\n    .sort((a, b) => a.time.localeCompare(b.time));\n\n  if (velas.length === 0) {\n    return { error: `${intervalo}: ninguna vela pasó la validación` };\n  }\n  return { velas };\n}\n\nconst resultado = {\n  ok: false,\n  ticker: peticiones[0]?.json.symbol ?? null,\n  candles5m: [],\n  candles15m: [],\n  candles1d: [],\n  errors: [],\n  warnings: [],\n  fetchedAt: new Date().toISOString()\n};\n\npeticiones.forEach((p, i) => {\n  const intervalo = p.json.interval;\n  const r = parsear(respuestas[i], intervalo);\n  if (r.error) {\n    resultado.errors.push(r.error);\n    return;\n  }\n  resultado[destino[intervalo]] = r.velas;\n  if (r.velas.length < MIN_VELAS) {\n    resultado.warnings.push(`${intervalo}: solo ${r.velas.length} velas (se recomiendan ${MIN_VELAS}+ para la media de 200)`);\n  }\n});\n\nresultado.ok = resultado.errors.length === 0;\n\nconst ultima = resultado.candles5m.at(-1);\nif (ultima) {\n  resultado.lastPrice = ultima.close;\n  resultado.lastCandleTime = ultima.time;\n  const edadMin = (Date.now() - new Date(ultima.time).getTime()) / 60000;\n  resultado.lastCandleAgeMin = Math.round(edadMin * 10) / 10;\n  if (edadMin > MAX_EDAD_5M_MIN) {\n    resultado.warnings.push(`la última vela de 5 min tiene ${resultado.lastCandleAgeMin} min de antigüedad (¿mercado cerrado o datos atrasados?)`);\n  }\n}\n\nreturn [{ json: resultado }];\n"
+      },
+      "id": "a01506b3-9f83-4ab0-9eb1-3d0d67ca4ad1",
+      "name": "Armar velas",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1020,
+        400
+      ]
+    }
+  ],
+  "connections": {
+    "Al ser llamado por el orquestador": {
+      "main": [
+        [
+          {
+            "node": "Preparar peticiones",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Disparador manual (pruebas)": {
+      "main": [
+        [
+          {
+            "node": "Símbolo de prueba",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Símbolo de prueba": {
+      "main": [
+        [
+          {
+            "node": "Preparar peticiones",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar peticiones": {
+      "main": [
+        [
+          {
+            "node": "TwelveData - velas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "TwelveData - velas": {
+      "main": [
+        [
+          {
+            "node": "Armar velas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "name": "agente-trading",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Agente de trading intradía (compra clave, Vélez y Capra) en cuenta demo de Alpaca",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "agente": "node src/agente.js",
+    "sonda": "node src/sonda.js"
+  }
+}

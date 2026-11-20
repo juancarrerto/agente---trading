@@ -1,0 +1,42 @@
+# Agente de trading en la cuenta DEMO de Alpaca: una ejecución cada 15 minutos en días de bolsa.
+# Hora de Nueva York = UTC-5 en invierno (hasta el 14 de marzo de 2027). En horario de verano de EE. UU. hay que restar una hora a estas
+# horas UTC (14:45 pasa a 13:45, etc.). Las ejecuciones fuera del horario de bolsa terminan en segundos y no hacen nada.
+name: Agente de trading (demo)
+
+on:
+  schedule:
+    - cron: '45 14 * * 1-5'
+    - cron: '*/15 15-20 * * 1-5'
+    - cron: '0 21 * * 1-5'
+  workflow_dispatch:
+
+concurrency:
+  group: agente-trading
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  pasada:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Una pasada del agente
+        env:
+          ALPACA_KEY_ID: ${{ secrets.ALPACA_KEY_ID }}
+          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+          AGENTE_APAGADO: ${{ vars.AGENTE_APAGADO }}
+        run: node src/agente.js --ejecucion pasada
+      - name: Guardar estado y bitácora
+        if: always()
+        run: |
+          git config user.name "agente-trading"
+          git config user.email "agente-trading@users.noreply.github.com"
+          git add datos/estado.json datos/bitacora.jsonl 2>/dev/null || true
+          if ! git diff --cached --quiet; then
+            git commit -m "datos: $(date -u +%Y-%m-%dT%H:%MZ)"
+            git pull --rebase --autostash || true
+            git push
+          fi

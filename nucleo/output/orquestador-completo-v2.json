@@ -1,0 +1,500 @@
+{
+  "name": "Orquestador completo v2 (Agentes 1 a 4, paper trading)",
+  "nodes": [
+    {
+      "id": "0826afc1-0dfd-45e2-b735-8f356932428b",
+      "name": "Nota",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -300,
+        -520
+      ],
+      "parameters": {
+        "content": "## Orquestador completo v2 · Agentes 1 → 4 (paper trading)\n\nCada 15 minutos (lunes a viernes, de 8:00 a 11:45 hora de Nueva York) revisa los pares de la lista: pide las velas (Agente 1), gestiona las posiciones abiertas (Agente 4), busca la compra clave (Agente 2), aplica riesgo y conducta (Agente 3) y, si aprueba, abre la orden de prueba (Agente 4). **No usa dinero ni broker.**\n\n**Antes de usarlo (una sola vez)**\n1. Abre el nodo *Agente 1* y en *Workflow* elige tu workflow del Agente 1 (From list). Es el único sub-workflow; los Agentes 2, 3 y 4 ya van dentro de este workflow.\n2. Prueba con **Execute**: tarda unos 5 minutos (pausa de 30 s entre pares por el límite de TwelveData). Mira el nodo *Resultado final*.\n3. Para que corra solo, publícalo (botón Publish, arriba a la derecha). La cuenta de prueba solo se guarda entre pasadas cuando el workflow está publicado: con Execute a mano, lo que pase se pierde al terminar.\n\n**La cuenta de prueba**\nEmpieza con 10.000 USD. Se guarda dentro del workflow. En *Resultado final*, `pasadaNumero` sube en cada pasada publicada; si siempre vale 1, el estado no se está guardando. Para empezar de cero, abre *Preparar pasada*, pon `REINICIAR_CUENTA = true`, ejecuta una vez y vuelve a ponerlo en `false`.\n\n**Revisión del diario (regla del libro)**\nTras 5 pérdidas desde la última revisión, el Agente 3 no abre operaciones nuevas hasta que revises el diario. Cuando pase, *Resultado final* lo avisa en `avisos` y en `cuenta.perdidasSinRevisar`. Revisa `ultimasOperaciones`; después pon `REVISION_DEL_DIARIO_HECHA = true` en *Preparar pasada*, ejecuta una vez y vuelve a ponerlo en `false`.\n\n**Cambiar pares u horario**\nLos pares están en *Preparar pasada*. El horario está en el disparador *Cada 15 minutos* (expresión cron, zona de Nueva York).\n\n**Créditos de TwelveData**\n16 pasadas al día x 8 pares x 3 créditos = 384 al día (el plan gratis da unos 800). Si añades pares u horas, haz la cuenta antes.\n\n**Ojo**\nEs una simulación con velas de 5 minutos y costos supuestos; no sustituye al backtest. En el backtest de EUR/USD, USD/JPY y GBP/USD (22 meses) la estrategia quedó ligeramente negativa después de costos, y este motor de 5 minutos es más duro que un broker real. Sirve para comprobar que el flujo funciona, no para medir rentabilidad. Los parámetros \"(mío)\" de cada agente están al principio de su nodo.",
+        "height": 600,
+        "width": 700
+      }
+    },
+    {
+      "id": "2c647a47-2efb-493f-b27a-518826ce7119",
+      "name": "Ejecutar ahora (manual)",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        300
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "34e722c7-7f96-4683-8322-46bdcb417a93",
+      "name": "Cada 15 minutos",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        480
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 */15 8-11 * * 1-5"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "1bdec71c-8a02-41e8-8c41-ebe8e1c0e5ea",
+      "name": "Preparar pasada",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        260,
+        380
+      ],
+      "parameters": {
+        "jsCode": "// Prepara la pasada: carga o crea la cuenta de prueba y entrega la lista de pares, uno por item.\nconst REINICIAR_CUENTA = false;   // pon true UNA vez para borrar la cuenta y empezar de cero; luego vuelve a false\nconst REVISION_DEL_DIARIO_HECHA = false;   // pon true UNA vez cuando hayas revisado el diario tras 5 pérdidas (hasta entonces el Agente 3 no abre nada); luego vuelve a false\nconst CAPITAL_INICIAL = 10000;    // (mío) dólares de la cuenta de prueba\nconst PARES = [\n  'EUR/USD',  // 21,2 % del volumen mundial de divisas (BIS, 2025)\n  'USD/JPY',  // 14,3 %\n  'USD/CNY',  // 8,1 %  (puede no tener datos de 5 min en TwelveData)\n  'GBP/USD',  // 7,6 %\n  'USD/CAD',  // 5,3 %\n  'AUD/USD',  // 4,9 %\n  'USD/CHF',  // 4,9 %\n  'BTC/USD'   // sigue aquí para comparar; quítalo cuando exista el agente solo de cripto\n];\n\nconst sd = $getWorkflowStaticData('global');\nif (REINICIAR_CUENTA || !sd.estado) { sd.estado = { capital: CAPITAL_INICIAL }; sd.meta = { pasadas: 0 }; }\nsd.meta = sd.meta ?? { pasadas: 0 };\nif (REVISION_DEL_DIARIO_HECHA) sd.estado.perdidasDesdeRevision = 0;   // reinicia el contador de pérdidas sin revisar\nsd.meta.pasadas += 1;\nsd.meta.ultimaPasada = new Date().toISOString();\nsd.bandeja = null;\n\nconst vistos = new Set();\nreturn PARES\n  .map(p => String(p).trim().toUpperCase())\n  .filter(p => p && !vistos.has(p) && vistos.add(p))\n  .map(symbol => ({ json: { symbol } }));\n"
+      }
+    },
+    {
+      "id": "caa87283-5ebd-4d64-b76a-967eca75f2c4",
+      "name": "Bucle por par",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        520,
+        380
+      ],
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      }
+    },
+    {
+      "id": "799d5155-70d0-431d-98de-70c45d0dfb2b",
+      "name": "Marcar par",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        800,
+        480
+      ],
+      "parameters": {
+        "jsCode": "// Anota qué par se está procesando. La \"bandeja\" es un cajón temporal dentro del workflow\n// que lleva los datos de este par de un nodo al siguiente sin depender de enlaces entre nodos.\nconst sd = $getWorkflowStaticData('global');\nconst item = $input.first().json;\nsd.bandeja = { simbolo: String(item.symbol).toUpperCase(), avisos: [] };\nreturn [{ json: item }];\n"
+      }
+    },
+    {
+      "id": "14b6eaa2-c2c1-44a8-ada7-6a0dae94ce00",
+      "name": "Agente 1",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1040,
+        480
+      ],
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "list",
+          "value": ""
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "294c3891-80e0-43ef-b3cf-91ec9d70c8b6",
+      "name": "Guardar velas",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1280,
+        480
+      ],
+      "parameters": {
+        "jsCode": "// Guarda las velas y su antigüedad en la bandeja y deja pasar la salida del Agente 1 sin cambios.\nconst sd = $getWorkflowStaticData('global');\nconst b = sd.bandeja ?? { simbolo: null, avisos: [] };\nconst r = $input.first().json ?? {};\nconst mensaje = e => (typeof e === 'string' ? e : (e?.message ?? JSON.stringify(e)));\n\nif (r.error) {\n  b.datos = { ok: false, errores: [`El Agente 1 falló: ${mensaje(r.error)}`] };\n  sd.bandeja = b;\n  return [{ json: { ok: false, ticker: b.simbolo, errors: b.datos.errores } }];\n}\nb.candles5m = Array.isArray(r.candles5m) ? r.candles5m : [];\nb.edadUltimaVelaMin = typeof r.lastCandleAgeMin === 'number' ? r.lastCandleAgeMin : null;\nb.datos = { ok: r.ok === true, errores: r.errors ?? [] };\nsd.bandeja = b;\nreturn [{ json: r }];\n"
+      }
+    },
+    {
+      "id": "e9cf91f5-4543-4dd7-b1ed-24f8a92596c9",
+      "name": "Agente 2 · Estrategia",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1520,
+        480
+      ],
+      "parameters": {
+        "jsCode": "// ================================================================\n// Agente 2 · Estrategia\n// Libro: \"Day trading\", Oliver Vélez y Greg Capra (Deusto, 2005).\n// Usa solo precios (sin noticias ni volumen). Propone solo entradas LARGAS\n// con la compra clave (libro, pp. 410-412).\n// (libro) = cifra o regla del libro, con página.\n// (mío)   = valor de partida para calibrar con historial; el libro no lo fija.\n// ================================================================\n\nconst entrada = $input.first().json;\n\n// ---------- PARÁMETROS: puedes editarlos aquí ----------\nconst PARAMETROS = {\n  plazosEntrada: ['5min', '15min'],\n  mediasPorPlazo: {                       // (libro, p. 514)\n    '5min': [20, 200],\n    '15min': [20, 200],\n    '1day': [10, 20, 50, 100, 200]\n  },\n  periodosATR: 14,                        // (mío)\n\n  // Compra clave (libro, pp. 410-412)\n  ventanaNuevoMaximo: 20,                 // (mío) \"nuevo máximo\" = el mayor de las últimas 20 barras\n  maxBarrasDesdeMaximo: 8,                // (libro)\n  minBarrasMaximosBajos: 3,               // (libro)\n\n  // Distancias en múltiplos del ATR (el libro usa 1/16 y 1/8 de dólar)\n  holguraEntradaATR: 0.05,                // (mío) por encima del máximo de la barra anterior\n  holguraStopATR: 0.10,                   // (mío) por debajo del mínimo que sirve de stop\n  perseguirMaxATR: 0.25,                  // (mío) si el precio ya se alejó más de esto del disparo, no se persigue\n  riesgoMaxATR: 1.5,                      // (mío) \"demasiado riesgo\": el libro no da cifra\n  objetivoR: 2.5,                         // (mío) los ejemplos del libro dan de 2,3 a 2,7 veces el riesgo\n  breakevenR: 1.0,                        // (mío) el libro: de 1 a 1,33 veces el riesgo\n  timeStopBarras: { '5min': 24, '15min': 8 }, // (libro, p. 436) de 1 a 2 horas en intradía\n\n  // Herramientas gráficas\n  nrbFactor: 0.5, nrbVentana: 10,         // (mío) rango menor que la mitad del rango medio de 10 barras\n  cierreCercaFraccion: 0.25,              // (mío) \"cerca del máximo/mínimo\" = 25 % del rango\n  colaFraccionMin: 0.5,                   // (mío) mecha de al menos la mitad del rango\n  rbCaidaInicial: 0.4,                    // (mío) movimiento inicial en contra de al menos 40 % del rango\n  caidaMin: 3, caidaMax: 5,               // (libro, pp. 344-350)\n  pivoteBarras: 3, zonaATR: 0.5,          // (mío) pivotes y zona de soportes/resistencias\n  retrocesoMaxBarras: 60,                 // (mío)\n  nivelesRetroceso: [0.4, 0.5, 0.6, 1.0], // (libro, pp. 319-324)\n  toleranciaRetroceso: 0.05,              // (mío)\n  pendienteBarras: 5, pendientePlanaATR: 0.15 // (mío) pendiente de la media de 20\n};\nconst P = { ...PARAMETROS, ...(entrada.parametros ?? {}) };\n\n// Si el Agente 1 no entregó datos buenos, no se opera.\nif (entrada.ok === false) {\n  return [{ json: { ok: false, motivo: 'El Agente 1 no entregó datos válidos: no se opera.', errors: entrada.errors ?? [] } }];\n}\n\n// ---------- Utilidades ----------\nconst redondear = x => (x === null || x === undefined || !Number.isFinite(x)) ? null : Number(x.toPrecision(8));\nconst rango = c => c.high - c.low;\nconst media = arr => arr.reduce((a, b) => a + b, 0) / arr.length;\n\nfunction smaEn(cierres, n, fin) {                  // media simple de n cierres que terminan en 'fin'\n  if (fin + 1 < n || fin < 0) return null;\n  let s = 0;\n  for (let i = fin - n + 1; i <= fin; i++) s += cierres[i];\n  return s / n;\n}\nfunction atrEn(velas, n, fin) {                    // media de los rangos verdaderos de las n barras hasta 'fin'\n  if (fin < n) return null;\n  let s = 0;\n  for (let i = fin - n + 1; i <= fin; i++) {\n    const previo = velas[i - 1].close;\n    s += Math.max(velas[i].high - velas[i].low, Math.abs(velas[i].high - previo), Math.abs(velas[i].low - previo));\n  }\n  return s / n;\n}\nfunction pendienteMedia(cierres, n, fin, atr) {    // 'sube' | 'baja' | 'plana'\n  const ahora = smaEn(cierres, n, fin);\n  const antes = smaEn(cierres, n, fin - P.pendienteBarras);\n  if (ahora === null || antes === null || !(atr > 0)) return null;\n  const p = (ahora - antes) / atr;\n  return p > P.pendientePlanaATR ? 'sube' : p < -P.pendientePlanaATR ? 'baja' : 'plana';\n}\n\n// ---------- Herramientas gráficas (todas sobre la barra i ya cerrada) ----------\n// 1. Barra de rango estrecho, NRB (libro, pp. 291-295): rango menor que lo normal,\n//    tras varias barras de rango normal o ancho.\nfunction esNRB(v, i) {\n  if (i < P.nrbVentana + 3) return false;\n  const prom = media(v.slice(i - P.nrbVentana, i).map(rango));\n  const estrecha = rango(v[i]) < P.nrbFactor * prom;\n  const previasNormales = [1, 2, 3].every(k => rango(v[i - k]) >= P.nrbFactor * prom);\n  return estrecha && previasNormales;\n}\n// 2. Barra reversa, RB (libro, pp. 295-300): movimiento inicial en contra y cierre cerca del extremo opuesto.\nfunction tipoRB(v, i) {\n  const c = v[i], r = rango(c);\n  if (!(r > 0)) return null;\n  if (c.close > c.open && (c.high - c.close) <= P.cierreCercaFraccion * r && (c.open - c.low) >= P.rbCaidaInicial * r) return 'alcista';\n  if (c.close < c.open && (c.close - c.low) <= P.cierreCercaFraccion * r && (c.high - c.open) >= P.rbCaidaInicial * r) return 'bajista';\n  return null;\n}\n// 3. Colas (libro, pp. 300-304). Mido la mecha real: en el ejemplo del libro (apertura 30, mínimo 27,\n//    cierre 29) la cola de 2 coincide con la mecha inferior. Con velas alcistas, medir del mínimo al cierre\n//    contaría también el cuerpo y marcaría casi la mitad de las barras (decisión mía).\nfunction colas(c) {\n  const r = rango(c);\n  if (!(r > 0)) return { fondo: false, tope: false };\n  const mechaInf = Math.min(c.open, c.close) - c.low;\n  const mechaSup = c.high - Math.max(c.open, c.close);\n  return { fondo: mechaInf >= P.colaFraccionMin * r, tope: mechaSup >= P.colaFraccionMin * r };\n}\n// 10. Caída de 3 a 5 barras (libro, pp. 344-350): barras bajistas consecutivas hasta la barra i.\nfunction barrasBajistas(v, i) {\n  let n = 0;\n  for (let k = i; k >= 1; k--) {\n    if (v[k].close < v[k - 1].close && v[k].close < v[k].open) n++; else break;\n  }\n  return n;\n}\n// 5. Soportes y resistencias (libro, pp. 311-318): pivotes de 'pivoteBarras' barras a cada lado.\nfunction pivotes(v) {\n  const k = P.pivoteBarras, altos = [], bajos = [];\n  for (let i = k; i <= v.length - 1 - k; i++) {\n    let alto = true, bajo = true;\n    for (let j = 1; j <= k; j++) {\n      if (!(v[i].high > v[i - j].high && v[i].high >= v[i + j].high)) alto = false;\n      if (!(v[i].low < v[i - j].low && v[i].low <= v[i + j].low)) bajo = false;\n    }\n    if (alto) altos.push({ i, precio: v[i].high });\n    if (bajo) bajos.push({ i, precio: v[i].low });\n  }\n  return { altos, bajos };\n}\nfunction cercaDeSR(v, i, atr, piv) {\n  const zona = P.zonaATR * atr, precio = v[i].close;\n  const minimo = Math.min(v[i].low, v[i - 1].low), maximo = Math.max(v[i].high, v[i - 1].high);\n  let soporte = null, resistencia = null;\n  for (const b of piv.bajos) {\n    if (Math.abs(minimo - b.precio) <= zona) {\n      const sube = Math.max(...v.slice(b.i + 1, b.i + 11).map(c => c.high)) - b.precio;\n      const cand = { precio: redondear(b.precio), tipo: sube >= 2 * atr ? 'soporte mayor' : 'soporte menor' };\n      if (!soporte || (cand.tipo === 'soporte mayor' && soporte.tipo !== 'soporte mayor')) soporte = cand;\n    }\n  }\n  for (const a of piv.altos) {                       // una resistencia superada pasa a soporte menor\n    if (precio > a.precio && Math.abs(minimo - a.precio) <= zona && !soporte) {\n      soporte = { precio: redondear(a.precio), tipo: 'soporte menor (resistencia superada)' };\n    }\n    if (precio < a.precio && Math.abs(a.precio - maximo) <= zona) resistencia = { precio: redondear(a.precio), tipo: 'resistencia' };\n  }\n  return { soporte, resistencia };\n}\n// 6. Retrocesos (libro, pp. 319-324): cuánto del último avance se ha devuelto.\nfunction retroceso(v, i, piv) {\n  const ph = piv.altos.at(-1);\n  if (!ph || i - ph.i > P.retrocesoMaxBarras) return null;\n  const pl = piv.bajos.filter(b => b.i < ph.i).at(-1);\n  if (!pl) return null;\n  const mov = ph.precio - pl.precio;\n  if (!(mov > 0)) return null;\n  const pct = (ph.precio - v[i].close) / mov;\n  if (pct < 0) return null;\n  const cerca = P.nivelesRetroceso.find(n => Math.abs(pct - n) <= P.toleranciaRetroceso) ?? null;\n  return { pct: redondear(pct), nivelCercano: cerca, desde: redondear(ph.precio), hasta: redondear(pl.precio) };\n}\n\n// ---------- Compra clave (libro, pp. 410-412) ----------\n// 1) El valor marcó un nuevo máximo como mucho 8 barras atrás.\n// 2) Desde entonces hay 3 o más barras con máximos consecutivos más bajos.\n// Entrada: 1/16 a 1/8 por encima del máximo de la barra anterior (aquí, holguraEntradaATR).\n// Stop inicial: método de la barra anterior (libro, p. 427) y, si arriesga demasiado,\n// método de la barra actual (libro, p. 428).\nfunction compraClave(v, cur, atr, plazo) {\n  const p = v.length - 1;                            // barra anterior a la de entrada\n  if (p < P.ventanaNuevoMaximo + P.maxBarrasDesdeMaximo) return { estado: 'SIN_SETUP', motivo: 'pocas barras' };\n\n  for (let k = P.minBarrasMaximosBajos; k <= P.maxBarrasDesdeMaximo; k++) {\n    const h = p - k;\n    const previas = v.slice(h - P.ventanaNuevoMaximo + 1, h);\n    if (!previas.every(c => v[h].high > c.high)) continue;          // la barra h no es un nuevo máximo\n    let bajando = true;\n    for (let j = h + 1; j <= p; j++) if (!(v[j].high < v[j - 1].high)) { bajando = false; break; }\n    if (!bajando) continue;\n\n    const disparo = v[p].high + P.holguraEntradaATR * atr;\n    const disparada = cur.high >= disparo;\n    let estado = disparada ? 'DISPARADA' : 'ARMADA';\n    if (disparada && (cur.close - disparo) > P.perseguirMaxATR * atr) estado = 'NO_PERSEGUIR';\n\n    const stopAnterior = v[p].low - P.holguraStopATR * atr;\n    const stopActual = disparada ? cur.low - P.holguraStopATR * atr : null;\n    const maxRiesgo = P.riesgoMaxATR * atr;\n    let stop = stopAnterior, metodoStop = 'barra anterior (libro, p. 427)', valido = true, motivo = null;\n    if (disparo - stop > maxRiesgo) {\n      if (stopActual !== null && stopActual < disparo && disparo - stopActual <= maxRiesgo) {\n        stop = stopActual; metodoStop = 'barra actual (libro, p. 428)';\n      } else {\n        valido = false;\n        motivo = stopActual === null\n          ? 'riesgo excesivo con la barra anterior; se reevalúa con la barra actual al dispararse'\n          : 'riesgo excesivo con ambos métodos de stop';\n      }\n    }\n    const resultado = {\n      estado, valido, motivo,\n      nuevoMaximoHaceBarras: k, barrasConMaximosBajos: k,\n      regla: 'Compra clave (libro, pp. 410-412)',\n      disparo: redondear(disparo)\n    };\n    if (valido) {\n      const R = disparo - stop;\n      resultado.plan = {\n        entrada: redondear(disparo),\n        stop: redondear(stop), metodoStop,\n        riesgo: redondear(R), riesgoATR: redondear(R / atr),\n        breakeven: redondear(disparo + P.breakevenR * R),\n        ventaParcial: { en: redondear(disparo + P.breakevenR * R), fraccion: 0.5 },   // venta incremental (libro, pp. 438-441)\n        objetivo: redondear(disparo + P.objetivoR * R),\n        timeStopBarras: P.timeStopBarras[plazo] ?? null                              // (libro, p. 436)\n      };\n    }\n    return resultado;\n  }\n  return { estado: 'SIN_SETUP' };\n}\n\n// ---------- Lectura de un plazo ----------\nfunction leerPlazo(plazo, velas) {\n  if (!Array.isArray(velas) || velas.length < 40) {\n    return { plazo, ok: false, avisos: [`pocas velas (${Array.isArray(velas) ? velas.length : 0})`] };\n  }\n  const v = velas.slice(0, -1);                       // barras cerradas\n  const cur = velas.at(-1);                           // barra en curso\n  const i = v.length - 1;\n  const atr = atrEn(v, P.periodosATR, i);\n  if (!(atr > 0)) return { plazo, ok: false, avisos: ['no se pudo calcular el ATR'] };\n\n  const cierres = v.map(c => c.close);\n  const avisos = [];\n  const medias = {}, cercaDeMedia = [];\n  for (const n of P.mediasPorPlazo[plazo] ?? []) {\n    const m = smaEn(cierres, n, i);\n    medias['sma' + n] = redondear(m);\n    if (m === null) { avisos.push(`faltan velas para la media de ${n}`); continue; }\n    if (Math.abs(v[i].close - m) <= P.zonaATR * atr || (v[i].low <= m && m <= v[i].high)) cercaDeMedia.push('SMA' + n);\n  }\n  const pend20 = pendienteMedia(cierres, 20, i, atr);\n\n  const piv = pivotes(v);\n  const sr = cercaDeSR(v, i, atr, piv);\n  const retro = retroceso(v, i, piv);\n  const nrb = esNRB(v, i);\n  const rb = tipoRB(v, i);\n  const cola = colas(v[i]);\n  const caida = barrasBajistas(v, i);\n  const caida3a5 = caida >= P.caidaMin && caida <= P.caidaMax;\n\n  const confluencias = [];\n  if (nrb) confluencias.push('barra de rango estrecho');\n  if (rb === 'alcista') confluencias.push('barra reversa alcista');\n  if (cola.fondo) confluencias.push('cola de fondo');\n  if (caida3a5) confluencias.push(`caída de ${caida} barras`);\n  if (sr.soporte) confluencias.push(sr.soporte.tipo);\n  if (cercaDeMedia.length) confluencias.push('cerca de ' + cercaDeMedia.join(' y '));\n  if (retro && retro.nivelCercano !== null) confluencias.push(`retroceso del ${Math.round(retro.nivelCercano * 100)} %`);\n\n  return {\n    plazo, ok: true,\n    ultimaCerrada: v[i].time, precioActual: cur.close, atr: redondear(atr),\n    medias, pendienteSMA20: pend20,\n    herramientas: {\n      nrb, rb, cola, barrasBajistas: caida, caida3a5,\n      soporte: sr.soporte, resistencia: sr.resistencia, retroceso: retro, cercaDeMedia\n    },\n    compraClave: compraClave(v, cur, atr, plazo),\n    confluencias, nConfluencias: confluencias.length,\n    avisos\n  };\n}\n\n// ---------- Contexto diario (no bloquea entradas) ----------\nfunction contextoDiario(velas, precio) {\n  if (!Array.isArray(velas) || velas.length < 30) return { ok: false, aviso: 'pocas velas diarias' };\n  const v = velas.slice(0, -1), cierres = v.map(c => c.close), fin = v.length - 1;\n  const atr = atrEn(v, P.periodosATR, fin);\n  const medias = {};\n  for (const n of P.mediasPorPlazo['1day']) medias['sma' + n] = redondear(smaEn(cierres, n, fin));\n  return {\n    ok: true, ultimaCerrada: v[fin].time, medias,\n    pendienteSMA20: pendienteMedia(cierres, 20, fin, atr),\n    precioSobreSMA200: medias.sma200 === null ? null : precio > medias.sma200\n  };\n}\n\n// ---------- Resultado ----------\nconst lecturas = {};\nfor (const plazo of ['5min', '15min']) {\n  const velas = plazo === '5min' ? entrada.candles5m : entrada.candles15m;\n  lecturas[plazo] = leerPlazo(plazo, velas);\n}\nconst precioActual = entrada.lastPrice ?? lecturas['5min'].precioActual ?? null;\nconst diario = contextoDiario(entrada.candles1d, precioActual);\n\nconst senales = [];\nfor (const plazo of P.plazosEntrada) {\n  const l = lecturas[plazo];\n  const ck = l?.ok ? l.compraClave : null;\n  if (ck && ['ARMADA', 'DISPARADA'].includes(ck.estado) && ck.valido) {\n    senales.push({\n      plazo, tipo: 'COMPRA', estado: ck.estado, regla: ck.regla,\n      ...ck.plan, confluencias: l.confluencias, nConfluencias: l.nConfluencias\n    });\n  }\n}\nsenales.sort((a, b) => b.nConfluencias - a.nConfluencias);\nconst decision = senales[0] ?? null;\n\nconst avisos = [];\nfor (const plazo of Object.keys(lecturas)) for (const a of lecturas[plazo].avisos ?? []) avisos.push(`${plazo}: ${a}`);\nif (!diario.ok) avisos.push(`1day: ${diario.aviso}`);\n\nconst resumen = decision\n  ? `${decision.plazo}: compra clave ${decision.estado} · entrada ${decision.entrada} · stop ${decision.stop} · objetivo ${decision.objetivo} · ${decision.nConfluencias} confluencia(s)`\n  : 'Sin señal de compra clave en 5 min ni 15 min.';\n\nreturn [{ json: {\n  ok: true,\n  ticker: entrada.ticker ?? null,\n  generadoEn: new Date().toISOString(),\n  precioActual: redondear(precioActual),\n  resumen,\n  decision,\n  senales,\n  contextoDiario: diario,\n  plazos: lecturas,\n  avisos\n} }];\n"
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "01587ef6-ec63-44e9-a544-a54d3ecbe658",
+      "name": "Preparar gestión",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1760,
+        480
+      ],
+      "parameters": {
+        "jsCode": "// Guarda la señal del Agente 2 y prepara la llamada que gestiona las posiciones abiertas de este par.\nconst sd = $getWorkflowStaticData('global');\nconst b = sd.bandeja ?? { simbolo: null, avisos: [] };\nconst r = $input.first().json ?? {};\nconst mensaje = e => (typeof e === 'string' ? e : (e?.message ?? JSON.stringify(e)));\n\nb.senal = r.error ? { ok: false, motivo: `El Agente 2 falló: ${mensaje(r.error)}`, errors: [] } : r;\nconst velas = b.simbolo && b.candles5m?.length ? { [b.simbolo]: b.candles5m } : {};\nsd.bandeja = b;\nreturn [{ json: { estado: sd.estado, velas } }];\n"
+      }
+    },
+    {
+      "id": "7a70019c-1073-4872-8dc1-226b47306229",
+      "name": "Agente 4 · Gestionar posiciones",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2000,
+        480
+      ],
+      "parameters": {
+        "jsCode": "// ================================================================\n// Agente 4 · Motor de paper trading (simula las operaciones, no usa dinero ni broker)\n// Recibe las órdenes aprobadas por el Agente 3 y las velas nuevas, y gestiona las posiciones:\n// entrada, stop, venta de la mitad, stop a equilibrio, objetivo y salida por tiempo.\n// No guarda nada por sí mismo: el estado ENTRA y SALE en cada llamada (campo \"estado\").\n// Quien lo llame (el orquestador) es quien lo guarda entre una llamada y la siguiente.\n// (libro) = regla del libro \"Day trading\" (Vélez y Capra), con página.\n// (mío)   = supuesto de simulación que debes calibrar.\n//\n// ENTRADA (un solo item):\n//   estado       el estado devuelto por la llamada anterior (si falta, cuenta nueva)\n//   ordenes      lista de \"orden\" aprobadas por el Agente 3 (o \"orden\" suelta)\n//   velas        { \"EUR/USD\": [ {time, open, high, low, close}, ... ] }  (velas de 5 min)\n//                o bien la salida del Agente 1 (ticker + candles5m)\n//   ahora        fecha ISO (por defecto, ahora mismo)\n//   cuenta       { capital } solo si no hay estado\n//   revisionHecha  true si ya revisaste el diario (reinicia el contador de pérdidas)\n//   parametros   cualquier parámetro de abajo\n// ================================================================\n\nconst entrada = $input.first().json ?? {};\n\n// ---------- PARÁMETROS: puedes editarlos aquí ----------\nconst PARAMETROS = {\n  capitalPorDefecto: 10000,                // (mío) cuenta de prueba en dólares\n  barraDatosMin: 5,                        // (mío) minutos de cada vela con que se gestionan las posiciones\n  minutosPorPlazo: { '5min': 5, '15min': 15, '1h': 60, '1day': 1440 },\n  neutralR: 0.05,                          // (mío) una operación entre -0,05 R y +0,05 R no cuenta como racha\n  zonaDia: 'UTC',                          // (mío) zona que define cuándo empieza el día para los contadores diarios\n  friccionPct: { forex: 0.006, cripto: 0.2, otros: 0.02 },   // (mío) costo de ida y vuelta, % del valor de la posición\n  maxFilasDiario: 200\n};\n\n// Reglas de la simulación (todas pesimistas, para no ser optimista por accidente):\n//  - Solo se usan velas CERRADAS. La vela en curso se procesa cuando cierre.\n//  - Si en una misma vela el precio toca el stop y también un nivel a favor, se asume que tocó el stop primero.\n//  - Si una vela abre más allá del stop, la salida es al precio de apertura (hueco), no al stop.\n//  - Tras vender la mitad y subir el stop a equilibrio, si esa misma vela vuelve al precio de entrada, se asume que salió ahí.\n//  - Una orden a mercado entra al precio de referencia; una orden pendiente entra al precio de la orden (o a la apertura si hay hueco).\n//  - La posición se gestiona desde la primera vela que abre después de la entrada.\n\n// ---------- Utilidades ----------\nconst CRIPTO = new Set(['BTC', 'ETH', 'SOL', 'XRP', 'LTC', 'BNB', 'ADA', 'DOGE']);\nconst redondear = (x, d = 8) => (Number.isFinite(x) ? Math.round(x * 10 ** d) / 10 ** d : null);\nconst esNumero = x => typeof x === 'number' && Number.isFinite(x);\nconst num = (x, def) => (x !== null && x !== '' && x !== undefined && Number.isFinite(Number(x)) ? Number(x) : def);\nconst arreglo = x => (Array.isArray(x) ? x : []);\nconst iso = ms => new Date(ms).toISOString();\nconst mayus = s => String(s ?? '').toUpperCase();\n\nfunction partesDelPar(simbolo) {\n  const m = /^([A-Z]{3,5})\\/([A-Z]{3,5})$/.exec(mayus(simbolo));\n  return m ? { base: m[1], cotizada: m[2] } : null;\n}\nconst claseActivo = s => { const p = partesDelPar(s); return p ? (CRIPTO.has(p.base) ? 'cripto' : 'forex') : 'otros'; };\nconst pasoUnidades = s => (claseActivo(s) === 'cripto' ? 1e-4 : 1);\n\n// ---------- Preparación ----------\nconst P = { ...PARAMETROS, ...(entrada.parametros ?? {}), friccionPct: { ...PARAMETROS.friccionPct, ...(entrada.parametros?.friccionPct ?? {}) } };\nconst ahora = entrada.ahora ? new Date(entrada.ahora) : new Date();\nif (Number.isNaN(ahora.getTime())) throw new Error('El campo \"ahora\" no es una fecha válida.');\nconst ahoraMs = ahora.getTime();\nconst barraMs = P.barraDatosMin * 60000;\n\nconst E0 = JSON.parse(JSON.stringify(entrada.estado ?? {}));\nconst E = {\n  capital: num(E0.capital, num(entrada.cuenta?.capital, P.capitalPorDefecto)),\n  posiciones: arreglo(E0.posiciones),\n  ordenesPendientes: arreglo(E0.ordenesPendientes),\n  ultimaVela: E0.ultimaVela && typeof E0.ultimaVela === 'object' ? E0.ultimaVela : {},\n  dia: E0.dia ?? null,\n  operacionesHoy: num(E0.operacionesHoy, 0), pnlHoyR: num(E0.pnlHoyR, 0), maxPnlHoyR: num(E0.maxPnlHoyR, 0),\n  gananciasSeguidas: num(E0.gananciasSeguidas, 0), perdidasSeguidas: num(E0.perdidasSeguidas, 0),\n  rachaGanadoraPrevia: num(E0.rachaGanadoraPrevia, 0), perdidasDesdeRevision: num(E0.perdidasDesdeRevision, 0),\n  siguienteId: num(E0.siguienteId, 1),\n  diario: arreglo(E0.diario)\n};\nif (!(E.capital > 0)) throw new Error('El capital debe ser mayor que cero.');\n\nlet formatoDia;\ntry {\n  formatoDia = new Intl.DateTimeFormat('en-CA', { timeZone: P.zonaDia, year: 'numeric', month: '2-digit', day: '2-digit' });\n  formatoDia.format(ahora);\n} catch (e) { throw new Error(`Zona horaria no válida: ${P.zonaDia}`); }\nconst diaDe = ms => formatoDia.format(new Date(ms));\n// Día nuevo: se reinician los contadores diarios (las rachas siguen).\n// El día de cada hecho es el de su vela, no el de la llamada: así partir las velas en varias llamadas da lo mismo.\nfunction avanzarDia(ms) {\n  const k = diaDe(ms);\n  if (k > E.dia) { E.dia = k; E.operacionesHoy = 0; E.pnlHoyR = 0; E.maxPnlHoyR = 0; }\n}\nif (E.dia === null) E.dia = diaDe(ahoraMs);\nif (entrada.revisionHecha === true) E.perdidasDesdeRevision = 0;\n\nconst eventos = [], diarioNuevo = [], avisos = [];\n\n// Velas por símbolo: solo cerradas, ordenadas, sin datos inválidos\nfunction limpiar(v) {\n  return arreglo(v).map(c => ({ ...c, t: Date.parse(c.time), open: Number(c.open), high: Number(c.high), low: Number(c.low), close: Number(c.close) }))\n    .filter(c => Number.isFinite(c.t) && [c.open, c.high, c.low, c.close].every(Number.isFinite) && c.high >= c.low)\n    .sort((a, b) => a.t - b.t);\n}\nconst velasPorSimbolo = {};\nif (entrada.velas && typeof entrada.velas === 'object') for (const [s, v] of Object.entries(entrada.velas)) velasPorSimbolo[mayus(s)] = limpiar(v);\nif (entrada.ticker && Array.isArray(entrada.candles5m) && !velasPorSimbolo[mayus(entrada.ticker)]) velasPorSimbolo[mayus(entrada.ticker)] = limpiar(entrada.candles5m);\n\n// ---------- Contabilidad ----------\nfunction pnlBruto(pos, precio, unidades) {\n  const par = partesDelPar(pos.simbolo);\n  const dif = precio - pos.entrada;                                  // solo posiciones largas\n  return par && par.base === 'USD' ? (dif * unidades) / precio : dif * unidades;\n}\nfunction friccion(pos, unidades) {\n  const par = partesDelPar(pos.simbolo);\n  const valor = par && par.base === 'USD' ? unidades : unidades * pos.entrada;\n  return valor * (P.friccionPct[claseActivo(pos.simbolo)] ?? P.friccionPct.otros) / 100;\n}\n\nfunction cerrarParte(pos, precio, unidades, tipo, tms) {\n  const costo = friccion(pos, unidades);\n  const pnl = pnlBruto(pos, precio, unidades) - costo;\n  pos.realizadoUSD = pos.realizadoUSD + pnl;\n  pos.unidadesRestantes = redondear(pos.unidadesRestantes - unidades, 6);\n  E.capital = redondear(E.capital + pnl, 6);\n  eventos.push({ tipo, id: pos.id, simbolo: pos.simbolo, tiempo: iso(tms), precio: redondear(precio), unidades: redondear(unidades, 6),\n    pnlUSD: redondear(pnl, 6), costoUSD: redondear(costo, 6) });\n}\n\nfunction cerrarTodo(pos, precio, tipo, tms) {\n  cerrarParte(pos, precio, pos.unidadesRestantes, tipo, tms);\n  avanzarDia(tms);\n  const R = pos.riesgoDinero > 0 ? pos.realizadoUSD / pos.riesgoDinero : 0;\n  E.pnlHoyR += R; E.maxPnlHoyR = Math.max(E.maxPnlHoyR, E.pnlHoyR);\n  if (R > P.neutralR) {\n    E.gananciasSeguidas += 1; E.perdidasSeguidas = 0; E.rachaGanadoraPrevia = 0;\n  } else if (R < -P.neutralR) {\n    if (E.perdidasSeguidas === 0) E.rachaGanadoraPrevia = E.gananciasSeguidas;\n    E.gananciasSeguidas = 0; E.perdidasSeguidas += 1; E.perdidasDesdeRevision += 1;\n  }\n  const fila = {\n    id: pos.id, simbolo: pos.simbolo, plazo: pos.plazo, lado: 'COMPRA', regla: pos.regla,\n    apertura: pos.abiertaEn, cierre: iso(tms), duracionMin: Math.round((tms - Date.parse(pos.abiertaEn)) / 60000),\n    entrada: pos.entrada, stopInicial: pos.stopInicial, objetivo: pos.objetivo, salidaFinal: redondear(precio),\n    unidades: pos.unidades, motivoSalida: tipo, pnlUSD: redondear(pos.realizadoUSD, 4), R: redondear(R, 3),\n    cumpleReglas: true                       // el motor solo ejecuta lo que el Agente 3 aprobó (libro, p. 173)\n  };\n  diarioNuevo.push(fila);\n  E.diario.push(fila);\n  if (E.diario.length > P.maxFilasDiario) E.diario.splice(0, E.diario.length - P.maxFilasDiario);\n  E.posiciones = E.posiciones.filter(p => p.id !== pos.id);\n}\n\n// ---------- Gestión de una vela cerrada ----------\nfunction unidadesParciales(pos) {\n  const paso = pasoUnidades(pos.simbolo), f = pos.ventaParcial?.fraccion ?? 0;\n  const u = Math.floor((pos.unidades * f) / paso + 1e-9) * paso;\n  return u >= paso && u < pos.unidadesRestantes ? redondear(u, 4) : 0;\n}\n\nfunction gestionarBarra(pos, b) {\n  pos.ultimaBarraGestionada = b.t;\n  // 1. Stop (el stop solo sube, nunca se aleja: libro, pp. 157, 179)\n  if (b.low <= pos.stop) {\n    return cerrarTodo(pos, Math.min(pos.stop, b.open), pos.stopEnEquilibrio ? 'STOP_EQUILIBRIO' : 'STOP', b.t);\n  }\n  // 2. Venta de la mitad y stop a equilibrio (libro, pp. 431-433, 438-441)\n  const nivel = pos.ventaParcial?.en ?? pos.nivelEquilibrio;\n  if (!pos.parcialHecha && esNumero(nivel) && b.high >= nivel) {\n    pos.parcialHecha = true;\n    const vender = unidadesParciales(pos);\n    if (vender > 0) cerrarParte(pos, Math.max(nivel, b.open), vender, 'PARCIAL', b.t);\n    if (pos.entrada > pos.stop) {\n      pos.stop = pos.entrada; pos.stopEnEquilibrio = true;\n      eventos.push({ tipo: 'STOP_A_EQUILIBRIO', id: pos.id, simbolo: pos.simbolo, tiempo: iso(b.t), precio: redondear(pos.stop) });\n    }\n    if (b.low <= pos.stop) return cerrarTodo(pos, pos.stop, 'STOP_EQUILIBRIO', b.t);\n  }\n  // 3. Objetivo\n  if (b.high >= pos.objetivo) return cerrarTodo(pos, Math.max(pos.objetivo, b.open), 'OBJETIVO', b.t);\n  // 4. Salida por tiempo (libro, p. 436)\n  const plazoMs = (P.minutosPorPlazo[pos.plazo] ?? P.barraDatosMin) * 60000;\n  if (pos.timeStopBarras && (b.t + barraMs) - Date.parse(pos.abiertaEn) >= pos.timeStopBarras * plazoMs) {\n    return cerrarTodo(pos, b.close, 'TIEMPO', b.t + barraMs);\n  }\n}\n\nfunction abrirPosicion(o, precio, tms, detalle) {\n  const pos = {\n    id: `T${E.siguienteId++}`, simbolo: mayus(o.simbolo), plazo: o.plazo ?? null, lado: 'COMPRA',\n    unidades: o.unidades, unidadesRestantes: o.unidades,\n    entrada: redondear(precio), entradaPlan: o.entrada, stop: o.stop, stopInicial: o.stop, objetivo: o.objetivo,\n    ventaParcial: o.gestion?.ventaParcial ?? null, nivelEquilibrio: o.gestion?.stopAEquilibrio?.cuando ?? null,\n    parcialHecha: false, stopEnEquilibrio: false, timeStopBarras: o.gestion?.timeStopBarras ?? null,\n    abiertaEn: iso(tms), regla: o.regla ?? null, metodoStop: o.metodoStop ?? null,\n    riesgoDinero: o.riesgoDinero, realizadoUSD: 0, ultimaBarraGestionada: null\n  };\n  E.posiciones.push(pos);\n  avanzarDia(tms);\n  E.operacionesHoy += 1;\n  eventos.push({ tipo: 'ENTRADA', id: pos.id, simbolo: pos.simbolo, tiempo: iso(tms), precio: pos.entrada, unidades: pos.unidades, detalle });\n  return pos;\n}\n\n// ---------- 1) Velas cerradas desde la última llamada (en orden cronológico entre todos los símbolos) ----------\nconst trabajo = [];\nfor (const [sim, velas] of Object.entries(velasPorSimbolo)) {\n  const ult = E.ultimaVela[sim] ? Date.parse(E.ultimaVela[sim]) : -Infinity;\n  const nuevas = velas.filter(b => b.t > ult && b.t + barraMs <= ahoraMs);\n  for (const b of nuevas) trabajo.push({ sim, b });\n  if (nuevas.length) E.ultimaVela[sim] = iso(nuevas.at(-1).t);\n}\ntrabajo.sort((x, y) => x.b.t - y.b.t || (x.sim < y.sim ? -1 : 1));\nfor (const { sim, b } of trabajo) {\n  for (const ord of E.ordenesPendientes.filter(o => o.simbolo === sim)) {\n    if (b.t >= Date.parse(ord.venceEn)) {\n      E.ordenesPendientes = E.ordenesPendientes.filter(o => o.id !== ord.id);\n      eventos.push({ tipo: 'ORDEN_VENCIDA', id: ord.id, simbolo: sim, tiempo: iso(b.t), detalle: 'no se activó a tiempo' });\n    } else if (b.t >= Date.parse(ord.creadaEn) && b.high >= ord.entrada) {\n      E.ordenesPendientes = E.ordenesPendientes.filter(o => o.id !== ord.id);\n      const pos = abrirPosicion(ord, Math.max(ord.entrada, b.open), b.t, 'orden stop activada');\n      gestionarBarra(pos, b);\n    }\n  }\n  for (const pos of [...E.posiciones.filter(p => p.simbolo === sim)]) {\n    if (b.t >= Date.parse(pos.abiertaEn) && !(pos.ultimaBarraGestionada >= b.t)) gestionarBarra(pos, b);\n  }\n}\nfor (const s of new Set([...E.posiciones, ...E.ordenesPendientes].map(x => x.simbolo))) {\n  if (!velasPorSimbolo[s]) avisos.push(`No llegaron velas de ${s}: su posición u orden no se gestionó en esta llamada.`);\n}\n\n// ---------- 2) Órdenes nuevas del Agente 3 ----------\nconst nuevasOrdenes = [...arreglo(entrada.ordenes), ...(entrada.orden ? [entrada.orden] : [])];\nfor (const o of nuevasOrdenes) {\n  const sim = mayus(o?.simbolo);\n  const rechazar = detalle => eventos.push({ tipo: 'ORDEN_RECHAZADA', simbolo: sim || null, tiempo: iso(ahoraMs), detalle });\n  const faltan = ['entrada', 'stop', 'objetivo', 'unidades', 'riesgoDinero'].filter(k => !esNumero(o?.[k]));\n  if (!sim || faltan.length) { rechazar(`orden incompleta (falta: ${faltan.join(', ') || 'símbolo'})`); continue; }\n  if (!(o.stop > 0 && o.stop < o.entrada && o.entrada < o.objetivo && o.unidades > 0)) { rechazar('orden con precios o unidades sin sentido'); continue; }\n  if ([...E.posiciones, ...E.ordenesPendientes].some(x => x.simbolo === sim)) { rechazar('ya hay una posición u orden en este símbolo (no se promedia)'); continue; }\n  if (o.tipo === 'MERCADO') {\n    const precio = esNumero(o.precioReferencia) ? o.precioReferencia : o.entrada;\n    if (precio <= o.stop) { rechazar('el precio actual ya está por debajo del stop'); continue; }\n    abrirPosicion(o, precio, ahoraMs, 'a mercado');\n  } else if (o.tipo === 'STOP_PENDIENTE') {\n    const plazoMs = (P.minutosPorPlazo[o.plazo] ?? P.barraDatosMin) * 60000;\n    const id = `T${E.siguienteId++}`;\n    E.ordenesPendientes.push({ ...o, id, simbolo: sim, creadaEn: iso(ahoraMs), venceEn: iso(ahoraMs + (o.venceEnBarras ?? 3) * plazoMs) });\n    eventos.push({ tipo: 'ORDEN_PENDIENTE', id, simbolo: sim, tiempo: iso(ahoraMs), precio: o.entrada, unidades: o.unidades, detalle: 'espera a que el precio supere la entrada' });\n  } else {\n    rechazar(`tipo de orden desconocido (${o.tipo})`);\n  }\n}\n\n// ---------- Salida ----------\navanzarDia(ahoraMs);\nE.capital = redondear(E.capital, 6);\nconst ultimoPrecio = s => velasPorSimbolo[s]?.at(-1)?.close ?? null;\nconst abiertas = E.posiciones.map(p => {\n  const px = ultimoPrecio(p.simbolo);\n  return { id: p.id, simbolo: p.simbolo, entrada: p.entrada, stop: p.stop, objetivo: p.objetivo, unidadesRestantes: p.unidadesRestantes,\n    parcialHecha: p.parcialHecha, stopEnEquilibrio: p.stopEnEquilibrio, abiertaEn: p.abiertaEn,\n    pnlNoRealizadoUSD: px === null ? null : redondear(pnlBruto(p, px, p.unidadesRestantes), 4) };\n});\nconst pendientes = E.ordenesPendientes.map(o => ({ id: o.id, simbolo: o.simbolo, entrada: o.entrada, venceEn: o.venceEn }));\n\nconst lineas = eventos.map(e => `${e.tipo} ${e.simbolo ?? ''}${e.precio !== undefined ? ' @' + e.precio : ''}${e.pnlUSD !== undefined ? ` (${e.pnlUSD >= 0 ? '+' : ''}${e.pnlUSD} USD)` : ''}${e.tipo === 'ORDEN_RECHAZADA' ? ': ' + e.detalle : ''}`);\nconst resumen = `${eventos.length ? lineas.join(' · ') : 'Sin eventos.'} | capital ${E.capital} USD | abiertas ${abiertas.length} | pendientes ${pendientes.length} | día: ${E.operacionesHoy} entradas, ${redondear(E.pnlHoyR, 2)} R`;\n\nreturn [{ json: { ok: true, generadoEn: iso(ahoraMs), resumen, eventos, diarioNuevo, abiertas, pendientes, avisos, estado: E } }];\n"
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "925b926f-1551-4171-b924-7feeea83d587",
+      "name": "Armar riesgo",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2240,
+        480
+      ],
+      "parameters": {
+        "jsCode": "// Guarda el estado tras gestionar las posiciones y prepara la entrada del Agente 3 (señal + cuenta + estado).\nconst sd = $getWorkflowStaticData('global');\nconst b = sd.bandeja ?? { simbolo: null, avisos: [] };\nconst g = $input.first().json ?? {};\nconst mensaje = e => (typeof e === 'string' ? e : (e?.message ?? JSON.stringify(e)));\n\nif (g.error) {\n  b.avisos.push(`Falló la gestión de posiciones: ${mensaje(g.error)}`);\n  b.eventosGestion = [];\n} else {\n  sd.estado = g.estado;\n  b.eventosGestion = g.eventos ?? [];\n  for (const a of g.avisos ?? []) if (b.simbolo && a.includes(b.simbolo)) b.avisos.push(a);   // solo avisos de este par\n}\ndelete b.candles5m;      // ya no hacen falta; así no se guardan de más\nsd.bandeja = b;\n\nconst senal = b.senal ?? { ok: false };\nreturn [{ json: { ...senal, edadUltimaVelaMin: b.edadUltimaVelaMin ?? null, cuenta: { capital: sd.estado.capital }, estado: sd.estado } }];\n"
+      }
+    },
+    {
+      "id": "ae1ebdca-a60d-4589-b455-c02b8d368eed",
+      "name": "Agente 3 · Riesgo y conducta",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2480,
+        480
+      ],
+      "parameters": {
+        "jsCode": "// ================================================================\n// Agente 3 · Riesgo y conducta\n// Recibe la señal del Agente 2 y decide si se convierte en orden y de qué tamaño.\n// No ejecuta nada. No guarda estado: el estado del día lo lleva el Agente 4 y se lo pasa.\n// (libro) = regla o cifra del libro \"Day trading\" (Vélez y Capra), con página.\n// (mío)   = valor de partida para calibrar con historial; el libro no lo fija.\n//\n// ENTRADA (un solo item): la salida del Agente 2 más estos campos opcionales:\n//   edadUltimaVelaMin  minutos de antigüedad de la última vela (viene del Agente 1)\n//   cuenta             { capital }  (por defecto, la cuenta de prueba)\n//   estado             lo que lleva el Agente 4 (ver ESTADO_VACIO)\n//   parametros         cualquier parámetro de abajo para sobrescribirlo\n//   ahora              fecha ISO (solo para pruebas)\n// ================================================================\n\nconst entrada = $input.first().json ?? {};\n\n// ---------- PARÁMETROS: puedes editarlos aquí ----------\nconst PARAMETROS = {\n  capitalPorDefecto: 10000,               // (mío) cuenta de prueba en dólares\n  riesgoPorOperacionPct: 0.5,             // (mío) % del capital que se arriesga en cada operación\n  nocionalMaxSobreCapital: 10,            // (mío) valor de la posición / capital, tope contra stops muy cortos\n\n  // Límites del día\n  maxOperacionesDia: 4,                   // (libro, ejemplo de 4 operaciones al día, p. 170)\n  maxOperacionesDiaTrasRacha: 2,          // (libro, ejemplo de bajar de 4 a 2, p. 170)\n  perdidaDiariaMaxR: 3,                   // (mío) se para el día al perder 3 veces el riesgo inicial\n  protegerGananciaDesdeR: 2,              // (mío) desde esta ganancia del día se vigila que no se devuelva\n  fraccionDevueltaMax: 0.5,               // (mío) se para si se devuelve esta fracción del máximo del día (libro, p. 202)\n\n  // Posiciones\n  maxPosicionesAbiertas: 3,               // (mío) incluye órdenes pendientes\n  maxPosicionesPorSimbolo: 1,             // (libro) no promediar a la baja ni añadir (pp. 91, 104, 246)\n  maxPosicionesPorDivisa: 2,              // (mío) evita acumular la misma apuesta (p. ej. cinco pares contra el dólar)\n\n  // Rachas (libro, pp. 170 y 203)\n  gananciasParaReducir: 4,                // (libro) \"tras 4 o 5 ganadoras seguidas\"\n  factorTrasRacha: 0.5,                   // (libro) reducir el lote a la mitad\n  perdidasParaReducirFrecuencia: 2,       // (libro) 2 pérdidas seguidas tras una racha larga\n  rachaLargaMin: 4,                       // (libro)\n\n  // Diario (libro, pp. 124 y 193-195)\n  perdidasParaRevisar: 5,                 // (libro) con 5 pérdidas hay que revisar el diario\n\n  // Calidad de la señal y de los datos\n  edadMaximaDatosMin: 15,                 // (mío) la última vela de 5 min no puede ser más vieja\n  minConfluencias: 0,                     // (mío) 0 = no filtrar; el libro pide actuar sin esperar más confirmaciones (pp. 215-217)\n\n  // Órdenes pendientes\n  vencimientoOrdenBarras: 3,              // (mío) una orden armada que no se activa en N barras se cancela\n\n  // Horario. El libro trabaja con la sesión de Nueva York y solo para acciones (pp. 223-224, 514-515).\n  // modo: 'desactivado' | 'ny_libro' | 'personalizado'\n  horario: {\n    modo: 'desactivado',                  // (mío) hasta decidir con historial qué horas usar en divisas y cripto\n    zona: 'America/New_York',\n    ventanas: [['09:35', '11:15'], ['14:15', '16:00']],   // (libro, p. 515) menor riesgo\n    dias: [1, 2, 3, 4, 5]                 // 1 = lunes ... 7 = domingo\n  }\n};\n\nconst ESTADO_VACIO = {\n  operacionesHoy: 0,          // entradas ejecutadas hoy\n  pnlHoyR: 0,                 // resultado del día en múltiplos del riesgo inicial (R)\n  maxPnlHoyR: 0,              // el mayor resultado del día alcanzado hasta ahora\n  gananciasSeguidas: 0,\n  perdidasSeguidas: 0,\n  rachaGanadoraPrevia: 0,     // ganadoras seguidas que había antes de la racha perdedora actual\n  perdidasDesdeRevision: 0,   // pérdidas desde la última revisión del diario\n  posiciones: [],             // [{ simbolo, lado }]\n  ordenesPendientes: []       // [{ simbolo, lado }]\n};\n\n// ---------- Utilidades ----------\nconst CRIPTO = new Set(['BTC', 'ETH', 'SOL', 'XRP', 'LTC', 'BNB', 'ADA', 'DOGE']);\nconst redondear = (x, d = 8) => (Number.isFinite(x) ? Math.round(x * 10 ** d) / 10 ** d : null);\nconst esNumero = x => typeof x === 'number' && Number.isFinite(x);\nconst aNumero = (x, porDefecto) => (esNumero(Number(x)) && x !== null && x !== '' ? Number(x) : porDefecto);\n\nfunction partesDelPar(simbolo) {\n  const m = /^([A-Z]{3,5})\\/([A-Z]{3,5})$/.exec(String(simbolo ?? '').toUpperCase());\n  return m ? { base: m[1], cotizada: m[2] } : null;\n}\n// Dólares que gana o pierde una unidad cuando el precio se mueve 1.0\nfunction dolaresPorUnidadYPrecio(par, precio) {\n  if (!par || par.cotizada === 'USD') return 1;      // acción o par cotizado en dólares\n  if (par.base === 'USD') return 1 / precio;         // USD/JPY, USD/CAD...\n  return null;                                       // par cruzado sin dólar\n}\nfunction valorPorUnidad(par, precio) {               // valor de una unidad en dólares\n  if (par && par.base === 'USD') return 1;\n  return precio;\n}\nfunction exposicion(simbolo, lado) {                 // compra EUR/USD = largo EUR, corto USD\n  const par = partesDelPar(simbolo);\n  if (!par) return {};\n  const s = lado === 'VENTA' ? -1 : 1;\n  return { [par.base]: s, [par.cotizada]: -s };\n}\n\nconst DIAS = { Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 7 };\nfunction enHorario(h, fecha) {\n  if (h.modo === 'desactivado') return { ok: true, detalle: 'filtro horario desactivado' };\n  const ventanas = h.modo === 'ny_libro' ? [['09:35', '11:15'], ['14:15', '16:00']] : h.ventanas;\n  const zona = h.modo === 'ny_libro' ? 'America/New_York' : h.zona;\n  const dias = h.modo === 'ny_libro' ? [1, 2, 3, 4, 5] : h.dias;\n  if (!['ny_libro', 'personalizado'].includes(h.modo) || !Array.isArray(ventanas) || !Array.isArray(dias)) {\n    return { ok: false, detalle: 'configuración de horario no válida: por seguridad no se opera' };\n  }\n  let partes;\n  try {\n    partes = new Intl.DateTimeFormat('en-US', { timeZone: zona, weekday: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(fecha);\n  } catch (e) {\n    return { ok: false, detalle: `zona horaria no válida (${zona}): por seguridad no se opera` };\n  }\n  const pick = t => partes.find(p => p.type === t)?.value;\n  const dia = DIAS[pick('weekday')];\n  const minutos = Number(pick('hour')) * 60 + Number(pick('minute'));\n  const aMin = s => { const [hh, mm] = String(s).split(':').map(Number); return hh * 60 + mm; };\n  const hora = `${pick('hour')}:${pick('minute')} (${zona})`;\n  if (!dias.includes(dia)) return { ok: false, detalle: `fuera de los días permitidos (${hora})` };\n  const dentro = ventanas.some(([a, b]) => minutos >= aMin(a) && minutos < aMin(b));\n  return dentro\n    ? { ok: true, detalle: `dentro de la ventana horaria (${hora})` }\n    : { ok: false, detalle: `fuera de las ventanas de menor riesgo (${hora}; libro, pp. 223-224, 514-515)` };\n}\n\n// ---------- Preparación ----------\nif (entrada.ok === false) {\n  return [{ json: { ok: false, veredicto: 'SIN_DATOS', motivo: 'El Agente 2 no entregó una señal válida: no se opera.', errors: entrada.errors ?? [] } }];\n}\n\nconst P = { ...PARAMETROS, ...(entrada.parametros ?? {}), horario: { ...PARAMETROS.horario, ...(entrada.parametros?.horario ?? {}) } };\nconst E = { ...ESTADO_VACIO, ...(entrada.estado ?? {}) };\nfor (const k of ['operacionesHoy', 'pnlHoyR', 'maxPnlHoyR', 'gananciasSeguidas', 'perdidasSeguidas', 'rachaGanadoraPrevia', 'perdidasDesdeRevision']) E[k] = aNumero(E[k], 0);\nE.posiciones = Array.isArray(E.posiciones) ? E.posiciones : [];\nE.ordenesPendientes = Array.isArray(E.ordenesPendientes) ? E.ordenesPendientes : [];\nconst ahora = entrada.ahora ? new Date(entrada.ahora) : new Date();\nif (Number.isNaN(ahora.getTime())) throw new Error('El campo \"ahora\" no es una fecha válida.');\nconst capital = aNumero(entrada.cuenta?.capital, P.capitalPorDefecto);\nif (!(capital > 0)) throw new Error('El capital de la cuenta debe ser mayor que cero.');\n\nconst ticker = entrada.ticker ?? null;\nconst d = entrada.decision ?? null;\nconst base = { ok: true, ticker, generadoEn: ahora.toISOString() };\n\nif (!d) {\n  return [{ json: { ...base, veredicto: 'SIN_SENAL', resumen: 'Sin señal: cero órdenes (libro, pp. 96 y 201).', motivos: [], chequeos: [], avisos: [], orden: null, diario: null } }];\n}\n\nconst chequeos = [];\nconst avisos = [];\nconst revisar = (regla, ok, detalle) => chequeos.push({ regla, ok, detalle });\n\n// 1. Ninguna orden sin entrada, stop y objetivo fijados de antemano (libro, pp. 49, 157, 160, 161, 188)\nconst faltan = ['entrada', 'stop', 'objetivo'].filter(k => !esNumero(d[k]));\nconst ordenLogico = faltan.length === 0 && d.stop > 0 && d.stop < d.entrada && d.entrada < d.objetivo;\nrevisar('Entrada, stop y objetivo fijados de antemano (pp. 49, 157, 160, 161, 188)', ordenLogico,\n  faltan.length ? `falta: ${faltan.join(', ')}` : (ordenLogico ? 'completos y en orden (stop < entrada < objetivo)' : 'el orden stop < entrada < objetivo no se cumple'));\n\n// 2. Datos frescos\nif (esNumero(entrada.edadUltimaVelaMin)) {\n  const fresco = entrada.edadUltimaVelaMin <= P.edadMaximaDatosMin;\n  revisar('Datos frescos', fresco, fresco\n    ? `última vela de hace ${Math.round(entrada.edadUltimaVelaMin)} min`\n    : `la última vela tiene ${Math.round(entrada.edadUltimaVelaMin)} min (máximo ${P.edadMaximaDatosMin}): ¿mercado cerrado o datos atrasados?`);\n} else {\n  avisos.push('No se comprobó la antigüedad de los datos (falta edadUltimaVelaMin).');\n}\n\n// 3. Horario\nconst h = enHorario(P.horario, ahora);\nrevisar('Horario', h.ok, h.detalle);\n\n// 4. Confluencias mínimas\nif (P.minConfluencias > 0) {\n  const ok = (d.nConfluencias ?? 0) >= P.minConfluencias;\n  revisar('Confluencias mínimas', ok, `${d.nConfluencias ?? 0} de ${P.minConfluencias} requeridas`);\n}\n\n// 5. No promediar ni añadir a una posición abierta (libro, pp. 91, 104, 246)\nconst abiertas = [...(E.posiciones ?? []), ...(E.ordenesPendientes ?? [])];\nconst mismas = abiertas.filter(p => String(p.simbolo).toUpperCase() === String(ticker).toUpperCase()).length;\nrevisar('Una posición por símbolo (pp. 91, 104, 246)', mismas < P.maxPosicionesPorSimbolo,\n  mismas < P.maxPosicionesPorSimbolo ? 'no hay otra posición en este símbolo' : `ya hay ${mismas} posición(es) u orden(es) en ${ticker}: no se añade ni se promedia`);\n\n// 6. Máximo de posiciones abiertas\nrevisar('Máximo de posiciones abiertas', abiertas.length < P.maxPosicionesAbiertas,\n  `${abiertas.length} abiertas o pendientes de ${P.maxPosicionesAbiertas} permitidas`);\n\n// 7. Exposición por divisa\nconst cuenta = {};\nfor (const p of abiertas) for (const [div, s] of Object.entries(exposicion(String(p.simbolo).toUpperCase(), p.lado))) {\n  cuenta[`${div}:${s}`] = (cuenta[`${div}:${s}`] ?? 0) + 1;\n}\nconst choques = Object.entries(exposicion(String(ticker).toUpperCase(), 'COMPRA'))\n  .filter(([div, s]) => (cuenta[`${div}:${s}`] ?? 0) + 1 > P.maxPosicionesPorDivisa)\n  .map(([div, s]) => `${cuenta[`${div}:${s}`]} posiciones ya ${s > 0 ? 'largas' : 'cortas'} en ${div}`);\nrevisar('Exposición por divisa', choques.length === 0,\n  choques.length ? `acumularía la misma apuesta: ${choques.join('; ')} (máximo ${P.maxPosicionesPorDivisa})` : 'la exposición por divisa queda dentro del máximo');\n\n// 8. Operaciones del día (con reducción de frecuencia tras una racha larga, libro, p. 170)\nconst reducirFrecuencia = E.perdidasSeguidas >= P.perdidasParaReducirFrecuencia && E.rachaGanadoraPrevia >= P.rachaLargaMin;\nconst maxOps = reducirFrecuencia ? P.maxOperacionesDiaTrasRacha : P.maxOperacionesDia;\nif (reducirFrecuencia) avisos.push(`${E.perdidasSeguidas} pérdidas seguidas tras una racha de ${E.rachaGanadoraPrevia} ganadoras: se baja a ${maxOps} operaciones al día (libro, p. 170).`);\nrevisar('Operaciones del día', E.operacionesHoy < maxOps, `${E.operacionesHoy} de ${maxOps} permitidas hoy`);\n\n// 9. Pérdida diaria máxima\nrevisar('Pérdida diaria máxima', E.pnlHoyR > -P.perdidaDiariaMaxR,\n  `resultado del día ${redondear(E.pnlHoyR, 2)} R (límite −${P.perdidaDiariaMaxR} R)`);\n\n// 10. No devolver las ganancias del día (libro, p. 202)\nconst devuelto = E.maxPnlHoyR >= P.protegerGananciaDesdeR && E.pnlHoyR <= E.maxPnlHoyR * (1 - P.fraccionDevueltaMax);\nrevisar('No devolver las ganancias del día (p. 202)', !devuelto, devuelto\n  ? `el día llegó a +${redondear(E.maxPnlHoyR, 2)} R y va en ${redondear(E.pnlHoyR, 2)} R: se devolvió más de ${P.fraccionDevueltaMax * 100} %`\n  : `día en ${redondear(E.pnlHoyR, 2)} R (máximo ${redondear(E.maxPnlHoyR, 2)} R)`);\n\n// 11. Revisión del diario (libro, pp. 124 y 193-195)\nrevisar('Revisión del diario (pp. 124, 193-195)', E.perdidasDesdeRevision < P.perdidasParaRevisar, E.perdidasDesdeRevision < P.perdidasParaRevisar\n  ? `${E.perdidasDesdeRevision} pérdidas desde la última revisión`\n  : `${E.perdidasDesdeRevision} pérdidas sin revisar: revisa el diario y reinicia el contador`);\n\n// 12. Tamaño de la posición\nconst par = partesDelPar(ticker);\nconst precioActual = esNumero(entrada.precioActual) ? entrada.precioActual : d.entrada;\nconst precioEntrada = ordenLogico ? (d.estado === 'DISPARADA' ? Math.max(d.entrada, precioActual) : d.entrada) : null;\nlet tamano = null;\nif (ordenLogico) {\n  const distancia = precioEntrada - d.stop;\n  const dolaresPorPrecio = dolaresPorUnidadYPrecio(par, precioEntrada);\n  if (dolaresPorPrecio === null) {\n    revisar('Tamaño de la posición', false, `par sin dólar (${ticker}): no se puede calcular el tamaño en dólares`);\n  } else {\n    const factor = E.gananciasSeguidas >= P.gananciasParaReducir ? P.factorTrasRacha : 1;\n    if (factor < 1) avisos.push(`${E.gananciasSeguidas} ganadoras seguidas: lote a la mitad (libro, pp. 170 y 203).`);\n    const riesgoObjetivo = capital * (P.riesgoPorOperacionPct / 100) * factor;\n    const esCripto = par && CRIPTO.has(par.base);\n    const paso = esCripto ? 1e-4 : 1;\n    const piso = x => Math.floor(x / paso + 1e-9) * paso;\n    let unidades = piso(riesgoObjetivo / (distancia * dolaresPorPrecio));\n    let limitadoPor = factor < 1 ? 'racha' : 'riesgo';\n    const maxPorNocional = piso((capital * P.nocionalMaxSobreCapital) / valorPorUnidad(par, precioEntrada));\n    if (unidades > maxPorNocional) { unidades = maxPorNocional; limitadoPor = 'apalancamiento'; }\n    unidades = redondear(unidades, 4);\n    const riesgoDinero = unidades * distancia * dolaresPorPrecio;\n    const ok = unidades >= paso;\n    revisar('Tamaño de la posición', ok, ok\n      ? `${unidades} unidades; riesgo ${redondear(riesgoDinero, 2)} USD (${redondear((riesgoDinero / capital) * 100, 3)} % del capital)`\n      : 'el riesgo permitido no alcanza para una unidad con este stop');\n    tamano = { unidades, riesgoDinero: redondear(riesgoDinero, 2), riesgoPctCapital: redondear((riesgoDinero / capital) * 100, 3),\n      nocionalUSD: redondear(unidades * valorPorUnidad(par, precioEntrada), 2), limitadoPor, distancia: redondear(distancia) };\n    if (limitadoPor === 'apalancamiento') avisos.push(`Tamaño recortado por el tope de ${P.nocionalMaxSobreCapital} veces el capital: el stop es muy corto.`);\n  }\n}\n\n// ---------- Veredicto ----------\nconst motivos = chequeos.filter(c => !c.ok).map(c => c.detalle);\nconst aprobada = motivos.length === 0 && tamano !== null;\nconst veredicto = aprobada ? 'APROBADA' : 'RECHAZADA';\n\nlet orden = null;\nif (aprobada) {\n  const tipo = d.estado === 'DISPARADA' ? 'MERCADO' : 'STOP_PENDIENTE';\n  orden = {\n    simbolo: ticker, lado: 'COMPRA', tipo,\n    entrada: d.entrada, precioReferencia: redondear(precioEntrada), stop: d.stop, objetivo: d.objetivo,\n    unidades: tamano.unidades, riesgoDinero: tamano.riesgoDinero, riesgoPctCapital: tamano.riesgoPctCapital,\n    nocionalUSD: tamano.nocionalUSD, limitadoPor: tamano.limitadoPor,\n    regla: d.regla, plazo: d.plazo, metodoStop: d.metodoStop,\n    gestion: {\n      stopAEquilibrio: { cuando: d.breakeven, moverStopA: 'precio de entrada' },\n      ventaParcial: d.ventaParcial ?? null,\n      objetivo: d.objetivo,\n      timeStopBarras: d.timeStopBarras ?? null\n    },\n    venceEnBarras: tipo === 'STOP_PENDIENTE' ? P.vencimientoOrdenBarras : null\n  };\n}\n\nconst resumen = aprobada\n  ? `APROBADA · compra ${ticker} (${orden.tipo === 'MERCADO' ? 'a mercado' : 'orden stop pendiente'}) · entrada ${orden.entrada} · stop ${orden.stop} · objetivo ${orden.objetivo} · ${orden.unidades} unidades · riesgo ${orden.riesgoDinero} USD (${orden.riesgoPctCapital} %)`\n  : `RECHAZADA · ${motivos.join('; ')}`;\n\nconst diario = {\n  fecha: ahora.toISOString(), simbolo: ticker, plazo: d.plazo, lado: 'COMPRA', estadoSenal: d.estado,\n  regla: d.regla, entrada: d.entrada, stop: d.stop, objetivo: d.objetivo,\n  unidades: orden?.unidades ?? null, riesgoDinero: orden?.riesgoDinero ?? null,\n  confluencias: d.confluencias ?? [], veredicto, motivos,\n  cumpleReglas: aprobada                      // una ganancia lograda rompiendo reglas se anota como pérdida (libro, p. 173)\n};\n\nreturn [{ json: { ...base, veredicto, resumen, motivos, chequeos, avisos, orden, diario,\n  contexto: { precioActual: redondear(precioActual), tendenciaDiaria: entrada.contextoDiario?.pendienteSMA20 ?? null } } }];\n"
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "e23112a3-238a-4003-b912-941711be79c1",
+      "name": "Armar orden",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2720,
+        480
+      ],
+      "parameters": {
+        "jsCode": "// Guarda el veredicto del Agente 3 y, si aprobó una orden, prepara la llamada que la abre.\nconst sd = $getWorkflowStaticData('global');\nconst b = sd.bandeja ?? { simbolo: null, avisos: [] };\nconst r3 = $input.first().json ?? {};\nconst mensaje = e => (typeof e === 'string' ? e : (e?.message ?? JSON.stringify(e)));\n\nb.riesgo = r3.error ? { veredicto: 'ERROR', motivos: [`El Agente 3 falló: ${mensaje(r3.error)}`] } : r3;\nsd.bandeja = b;\nconst hayOrden = b.riesgo.veredicto === 'APROBADA' && !!b.riesgo.orden;\nreturn [{ json: { hayOrden, estado: sd.estado, ordenes: hayOrden ? [b.riesgo.orden] : [], velas: {} } }];\n"
+      }
+    },
+    {
+      "id": "e9e2dcc1-6330-49a0-af2c-a27238b887d1",
+      "name": "¿Hay orden aprobada?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2960,
+        480
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "2569f510-4615-43fe-823c-b65057d42786",
+              "leftValue": "={{ $json.hayOrden }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "16262451-1a59-4383-9224-922ddcc01354",
+      "name": "Agente 4 · Abrir orden",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3220,
+        400
+      ],
+      "parameters": {
+        "jsCode": "// ================================================================\n// Agente 4 · Motor de paper trading (simula las operaciones, no usa dinero ni broker)\n// Recibe las órdenes aprobadas por el Agente 3 y las velas nuevas, y gestiona las posiciones:\n// entrada, stop, venta de la mitad, stop a equilibrio, objetivo y salida por tiempo.\n// No guarda nada por sí mismo: el estado ENTRA y SALE en cada llamada (campo \"estado\").\n// Quien lo llame (el orquestador) es quien lo guarda entre una llamada y la siguiente.\n// (libro) = regla del libro \"Day trading\" (Vélez y Capra), con página.\n// (mío)   = supuesto de simulación que debes calibrar.\n//\n// ENTRADA (un solo item):\n//   estado       el estado devuelto por la llamada anterior (si falta, cuenta nueva)\n//   ordenes      lista de \"orden\" aprobadas por el Agente 3 (o \"orden\" suelta)\n//   velas        { \"EUR/USD\": [ {time, open, high, low, close}, ... ] }  (velas de 5 min)\n//                o bien la salida del Agente 1 (ticker + candles5m)\n//   ahora        fecha ISO (por defecto, ahora mismo)\n//   cuenta       { capital } solo si no hay estado\n//   revisionHecha  true si ya revisaste el diario (reinicia el contador de pérdidas)\n//   parametros   cualquier parámetro de abajo\n// ================================================================\n\nconst entrada = $input.first().json ?? {};\n\n// ---------- PARÁMETROS: puedes editarlos aquí ----------\nconst PARAMETROS = {\n  capitalPorDefecto: 10000,                // (mío) cuenta de prueba en dólares\n  barraDatosMin: 5,                        // (mío) minutos de cada vela con que se gestionan las posiciones\n  minutosPorPlazo: { '5min': 5, '15min': 15, '1h': 60, '1day': 1440 },\n  neutralR: 0.05,                          // (mío) una operación entre -0,05 R y +0,05 R no cuenta como racha\n  zonaDia: 'UTC',                          // (mío) zona que define cuándo empieza el día para los contadores diarios\n  friccionPct: { forex: 0.006, cripto: 0.2, otros: 0.02 },   // (mío) costo de ida y vuelta, % del valor de la posición\n  maxFilasDiario: 200\n};\n\n// Reglas de la simulación (todas pesimistas, para no ser optimista por accidente):\n//  - Solo se usan velas CERRADAS. La vela en curso se procesa cuando cierre.\n//  - Si en una misma vela el precio toca el stop y también un nivel a favor, se asume que tocó el stop primero.\n//  - Si una vela abre más allá del stop, la salida es al precio de apertura (hueco), no al stop.\n//  - Tras vender la mitad y subir el stop a equilibrio, si esa misma vela vuelve al precio de entrada, se asume que salió ahí.\n//  - Una orden a mercado entra al precio de referencia; una orden pendiente entra al precio de la orden (o a la apertura si hay hueco).\n//  - La posición se gestiona desde la primera vela que abre después de la entrada.\n\n// ---------- Utilidades ----------\nconst CRIPTO = new Set(['BTC', 'ETH', 'SOL', 'XRP', 'LTC', 'BNB', 'ADA', 'DOGE']);\nconst redondear = (x, d = 8) => (Number.isFinite(x) ? Math.round(x * 10 ** d) / 10 ** d : null);\nconst esNumero = x => typeof x === 'number' && Number.isFinite(x);\nconst num = (x, def) => (x !== null && x !== '' && x !== undefined && Number.isFinite(Number(x)) ? Number(x) : def);\nconst arreglo = x => (Array.isArray(x) ? x : []);\nconst iso = ms => new Date(ms).toISOString();\nconst mayus = s => String(s ?? '').toUpperCase();\n\nfunction partesDelPar(simbolo) {\n  const m = /^([A-Z]{3,5})\\/([A-Z]{3,5})$/.exec(mayus(simbolo));\n  return m ? { base: m[1], cotizada: m[2] } : null;\n}\nconst claseActivo = s => { const p = partesDelPar(s); return p ? (CRIPTO.has(p.base) ? 'cripto' : 'forex') : 'otros'; };\nconst pasoUnidades = s => (claseActivo(s) === 'cripto' ? 1e-4 : 1);\n\n// ---------- Preparación ----------\nconst P = { ...PARAMETROS, ...(entrada.parametros ?? {}), friccionPct: { ...PARAMETROS.friccionPct, ...(entrada.parametros?.friccionPct ?? {}) } };\nconst ahora = entrada.ahora ? new Date(entrada.ahora) : new Date();\nif (Number.isNaN(ahora.getTime())) throw new Error('El campo \"ahora\" no es una fecha válida.');\nconst ahoraMs = ahora.getTime();\nconst barraMs = P.barraDatosMin * 60000;\n\nconst E0 = JSON.parse(JSON.stringify(entrada.estado ?? {}));\nconst E = {\n  capital: num(E0.capital, num(entrada.cuenta?.capital, P.capitalPorDefecto)),\n  posiciones: arreglo(E0.posiciones),\n  ordenesPendientes: arreglo(E0.ordenesPendientes),\n  ultimaVela: E0.ultimaVela && typeof E0.ultimaVela === 'object' ? E0.ultimaVela : {},\n  dia: E0.dia ?? null,\n  operacionesHoy: num(E0.operacionesHoy, 0), pnlHoyR: num(E0.pnlHoyR, 0), maxPnlHoyR: num(E0.maxPnlHoyR, 0),\n  gananciasSeguidas: num(E0.gananciasSeguidas, 0), perdidasSeguidas: num(E0.perdidasSeguidas, 0),\n  rachaGanadoraPrevia: num(E0.rachaGanadoraPrevia, 0), perdidasDesdeRevision: num(E0.perdidasDesdeRevision, 0),\n  siguienteId: num(E0.siguienteId, 1),\n  diario: arreglo(E0.diario)\n};\nif (!(E.capital > 0)) throw new Error('El capital debe ser mayor que cero.');\n\nlet formatoDia;\ntry {\n  formatoDia = new Intl.DateTimeFormat('en-CA', { timeZone: P.zonaDia, year: 'numeric', month: '2-digit', day: '2-digit' });\n  formatoDia.format(ahora);\n} catch (e) { throw new Error(`Zona horaria no válida: ${P.zonaDia}`); }\nconst diaDe = ms => formatoDia.format(new Date(ms));\n// Día nuevo: se reinician los contadores diarios (las rachas siguen).\n// El día de cada hecho es el de su vela, no el de la llamada: así partir las velas en varias llamadas da lo mismo.\nfunction avanzarDia(ms) {\n  const k = diaDe(ms);\n  if (k > E.dia) { E.dia = k; E.operacionesHoy = 0; E.pnlHoyR = 0; E.maxPnlHoyR = 0; }\n}\nif (E.dia === null) E.dia = diaDe(ahoraMs);\nif (entrada.revisionHecha === true) E.perdidasDesdeRevision = 0;\n\nconst eventos = [], diarioNuevo = [], avisos = [];\n\n// Velas por símbolo: solo cerradas, ordenadas, sin datos inválidos\nfunction limpiar(v) {\n  return arreglo(v).map(c => ({ ...c, t: Date.parse(c.time), open: Number(c.open), high: Number(c.high), low: Number(c.low), close: Number(c.close) }))\n    .filter(c => Number.isFinite(c.t) && [c.open, c.high, c.low, c.close].every(Number.isFinite) && c.high >= c.low)\n    .sort((a, b) => a.t - b.t);\n}\nconst velasPorSimbolo = {};\nif (entrada.velas && typeof entrada.velas === 'object') for (const [s, v] of Object.entries(entrada.velas)) velasPorSimbolo[mayus(s)] = limpiar(v);\nif (entrada.ticker && Array.isArray(entrada.candles5m) && !velasPorSimbolo[mayus(entrada.ticker)]) velasPorSimbolo[mayus(entrada.ticker)] = limpiar(entrada.candles5m);\n\n// ---------- Contabilidad ----------\nfunction pnlBruto(pos, precio, unidades) {\n  const par = partesDelPar(pos.simbolo);\n  const dif = precio - pos.entrada;                                  // solo posiciones largas\n  return par && par.base === 'USD' ? (dif * unidades) / precio : dif * unidades;\n}\nfunction friccion(pos, unidades) {\n  const par = partesDelPar(pos.simbolo);\n  const valor = par && par.base === 'USD' ? unidades : unidades * pos.entrada;\n  return valor * (P.friccionPct[claseActivo(pos.simbolo)] ?? P.friccionPct.otros) / 100;\n}\n\nfunction cerrarParte(pos, precio, unidades, tipo, tms) {\n  const costo = friccion(pos, unidades);\n  const pnl = pnlBruto(pos, precio, unidades) - costo;\n  pos.realizadoUSD = pos.realizadoUSD + pnl;\n  pos.unidadesRestantes = redondear(pos.unidadesRestantes - unidades, 6);\n  E.capital = redondear(E.capital + pnl, 6);\n  eventos.push({ tipo, id: pos.id, simbolo: pos.simbolo, tiempo: iso(tms), precio: redondear(precio), unidades: redondear(unidades, 6),\n    pnlUSD: redondear(pnl, 6), costoUSD: redondear(costo, 6) });\n}\n\nfunction cerrarTodo(pos, precio, tipo, tms) {\n  cerrarParte(pos, precio, pos.unidadesRestantes, tipo, tms);\n  avanzarDia(tms);\n  const R = pos.riesgoDinero > 0 ? pos.realizadoUSD / pos.riesgoDinero : 0;\n  E.pnlHoyR += R; E.maxPnlHoyR = Math.max(E.maxPnlHoyR, E.pnlHoyR);\n  if (R > P.neutralR) {\n    E.gananciasSeguidas += 1; E.perdidasSeguidas = 0; E.rachaGanadoraPrevia = 0;\n  } else if (R < -P.neutralR) {\n    if (E.perdidasSeguidas === 0) E.rachaGanadoraPrevia = E.gananciasSeguidas;\n    E.gananciasSeguidas = 0; E.perdidasSeguidas += 1; E.perdidasDesdeRevision += 1;\n  }\n  const fila = {\n    id: pos.id, simbolo: pos.simbolo, plazo: pos.plazo, lado: 'COMPRA', regla: pos.regla,\n    apertura: pos.abiertaEn, cierre: iso(tms), duracionMin: Math.round((tms - Date.parse(pos.abiertaEn)) / 60000),\n    entrada: pos.entrada, stopInicial: pos.stopInicial, objetivo: pos.objetivo, salidaFinal: redondear(precio),\n    unidades: pos.unidades, motivoSalida: tipo, pnlUSD: redondear(pos.realizadoUSD, 4), R: redondear(R, 3),\n    cumpleReglas: true                       // el motor solo ejecuta lo que el Agente 3 aprobó (libro, p. 173)\n  };\n  diarioNuevo.push(fila);\n  E.diario.push(fila);\n  if (E.diario.length > P.maxFilasDiario) E.diario.splice(0, E.diario.length - P.maxFilasDiario);\n  E.posiciones = E.posiciones.filter(p => p.id !== pos.id);\n}\n\n// ---------- Gestión de una vela cerrada ----------\nfunction unidadesParciales(pos) {\n  const paso = pasoUnidades(pos.simbolo), f = pos.ventaParcial?.fraccion ?? 0;\n  const u = Math.floor((pos.unidades * f) / paso + 1e-9) * paso;\n  return u >= paso && u < pos.unidadesRestantes ? redondear(u, 4) : 0;\n}\n\nfunction gestionarBarra(pos, b) {\n  pos.ultimaBarraGestionada = b.t;\n  // 1. Stop (el stop solo sube, nunca se aleja: libro, pp. 157, 179)\n  if (b.low <= pos.stop) {\n    return cerrarTodo(pos, Math.min(pos.stop, b.open), pos.stopEnEquilibrio ? 'STOP_EQUILIBRIO' : 'STOP', b.t);\n  }\n  // 2. Venta de la mitad y stop a equilibrio (libro, pp. 431-433, 438-441)\n  const nivel = pos.ventaParcial?.en ?? pos.nivelEquilibrio;\n  if (!pos.parcialHecha && esNumero(nivel) && b.high >= nivel) {\n    pos.parcialHecha = true;\n    const vender = unidadesParciales(pos);\n    if (vender > 0) cerrarParte(pos, Math.max(nivel, b.open), vender, 'PARCIAL', b.t);\n    if (pos.entrada > pos.stop) {\n      pos.stop = pos.entrada; pos.stopEnEquilibrio = true;\n      eventos.push({ tipo: 'STOP_A_EQUILIBRIO', id: pos.id, simbolo: pos.simbolo, tiempo: iso(b.t), precio: redondear(pos.stop) });\n    }\n    if (b.low <= pos.stop) return cerrarTodo(pos, pos.stop, 'STOP_EQUILIBRIO', b.t);\n  }\n  // 3. Objetivo\n  if (b.high >= pos.objetivo) return cerrarTodo(pos, Math.max(pos.objetivo, b.open), 'OBJETIVO', b.t);\n  // 4. Salida por tiempo (libro, p. 436)\n  const plazoMs = (P.minutosPorPlazo[pos.plazo] ?? P.barraDatosMin) * 60000;\n  if (pos.timeStopBarras && (b.t + barraMs) - Date.parse(pos.abiertaEn) >= pos.timeStopBarras * plazoMs) {\n    return cerrarTodo(pos, b.close, 'TIEMPO', b.t + barraMs);\n  }\n}\n\nfunction abrirPosicion(o, precio, tms, detalle) {\n  const pos = {\n    id: `T${E.siguienteId++}`, simbolo: mayus(o.simbolo), plazo: o.plazo ?? null, lado: 'COMPRA',\n    unidades: o.unidades, unidadesRestantes: o.unidades,\n    entrada: redondear(precio), entradaPlan: o.entrada, stop: o.stop, stopInicial: o.stop, objetivo: o.objetivo,\n    ventaParcial: o.gestion?.ventaParcial ?? null, nivelEquilibrio: o.gestion?.stopAEquilibrio?.cuando ?? null,\n    parcialHecha: false, stopEnEquilibrio: false, timeStopBarras: o.gestion?.timeStopBarras ?? null,\n    abiertaEn: iso(tms), regla: o.regla ?? null, metodoStop: o.metodoStop ?? null,\n    riesgoDinero: o.riesgoDinero, realizadoUSD: 0, ultimaBarraGestionada: null\n  };\n  E.posiciones.push(pos);\n  avanzarDia(tms);\n  E.operacionesHoy += 1;\n  eventos.push({ tipo: 'ENTRADA', id: pos.id, simbolo: pos.simbolo, tiempo: iso(tms), precio: pos.entrada, unidades: pos.unidades, detalle });\n  return pos;\n}\n\n// ---------- 1) Velas cerradas desde la última llamada (en orden cronológico entre todos los símbolos) ----------\nconst trabajo = [];\nfor (const [sim, velas] of Object.entries(velasPorSimbolo)) {\n  const ult = E.ultimaVela[sim] ? Date.parse(E.ultimaVela[sim]) : -Infinity;\n  const nuevas = velas.filter(b => b.t > ult && b.t + barraMs <= ahoraMs);\n  for (const b of nuevas) trabajo.push({ sim, b });\n  if (nuevas.length) E.ultimaVela[sim] = iso(nuevas.at(-1).t);\n}\ntrabajo.sort((x, y) => x.b.t - y.b.t || (x.sim < y.sim ? -1 : 1));\nfor (const { sim, b } of trabajo) {\n  for (const ord of E.ordenesPendientes.filter(o => o.simbolo === sim)) {\n    if (b.t >= Date.parse(ord.venceEn)) {\n      E.ordenesPendientes = E.ordenesPendientes.filter(o => o.id !== ord.id);\n      eventos.push({ tipo: 'ORDEN_VENCIDA', id: ord.id, simbolo: sim, tiempo: iso(b.t), detalle: 'no se activó a tiempo' });\n    } else if (b.t >= Date.parse(ord.creadaEn) && b.high >= ord.entrada) {\n      E.ordenesPendientes = E.ordenesPendientes.filter(o => o.id !== ord.id);\n      const pos = abrirPosicion(ord, Math.max(ord.entrada, b.open), b.t, 'orden stop activada');\n      gestionarBarra(pos, b);\n    }\n  }\n  for (const pos of [...E.posiciones.filter(p => p.simbolo === sim)]) {\n    if (b.t >= Date.parse(pos.abiertaEn) && !(pos.ultimaBarraGestionada >= b.t)) gestionarBarra(pos, b);\n  }\n}\nfor (const s of new Set([...E.posiciones, ...E.ordenesPendientes].map(x => x.simbolo))) {\n  if (!velasPorSimbolo[s]) avisos.push(`No llegaron velas de ${s}: su posición u orden no se gestionó en esta llamada.`);\n}\n\n// ---------- 2) Órdenes nuevas del Agente 3 ----------\nconst nuevasOrdenes = [...arreglo(entrada.ordenes), ...(entrada.orden ? [entrada.orden] : [])];\nfor (const o of nuevasOrdenes) {\n  const sim = mayus(o?.simbolo);\n  const rechazar = detalle => eventos.push({ tipo: 'ORDEN_RECHAZADA', simbolo: sim || null, tiempo: iso(ahoraMs), detalle });\n  const faltan = ['entrada', 'stop', 'objetivo', 'unidades', 'riesgoDinero'].filter(k => !esNumero(o?.[k]));\n  if (!sim || faltan.length) { rechazar(`orden incompleta (falta: ${faltan.join(', ') || 'símbolo'})`); continue; }\n  if (!(o.stop > 0 && o.stop < o.entrada && o.entrada < o.objetivo && o.unidades > 0)) { rechazar('orden con precios o unidades sin sentido'); continue; }\n  if ([...E.posiciones, ...E.ordenesPendientes].some(x => x.simbolo === sim)) { rechazar('ya hay una posición u orden en este símbolo (no se promedia)'); continue; }\n  if (o.tipo === 'MERCADO') {\n    const precio = esNumero(o.precioReferencia) ? o.precioReferencia : o.entrada;\n    if (precio <= o.stop) { rechazar('el precio actual ya está por debajo del stop'); continue; }\n    abrirPosicion(o, precio, ahoraMs, 'a mercado');\n  } else if (o.tipo === 'STOP_PENDIENTE') {\n    const plazoMs = (P.minutosPorPlazo[o.plazo] ?? P.barraDatosMin) * 60000;\n    const id = `T${E.siguienteId++}`;\n    E.ordenesPendientes.push({ ...o, id, simbolo: sim, creadaEn: iso(ahoraMs), venceEn: iso(ahoraMs + (o.venceEnBarras ?? 3) * plazoMs) });\n    eventos.push({ tipo: 'ORDEN_PENDIENTE', id, simbolo: sim, tiempo: iso(ahoraMs), precio: o.entrada, unidades: o.unidades, detalle: 'espera a que el precio supere la entrada' });\n  } else {\n    rechazar(`tipo de orden desconocido (${o.tipo})`);\n  }\n}\n\n// ---------- Salida ----------\navanzarDia(ahoraMs);\nE.capital = redondear(E.capital, 6);\nconst ultimoPrecio = s => velasPorSimbolo[s]?.at(-1)?.close ?? null;\nconst abiertas = E.posiciones.map(p => {\n  const px = ultimoPrecio(p.simbolo);\n  return { id: p.id, simbolo: p.simbolo, entrada: p.entrada, stop: p.stop, objetivo: p.objetivo, unidadesRestantes: p.unidadesRestantes,\n    parcialHecha: p.parcialHecha, stopEnEquilibrio: p.stopEnEquilibrio, abiertaEn: p.abiertaEn,\n    pnlNoRealizadoUSD: px === null ? null : redondear(pnlBruto(p, px, p.unidadesRestantes), 4) };\n});\nconst pendientes = E.ordenesPendientes.map(o => ({ id: o.id, simbolo: o.simbolo, entrada: o.entrada, venceEn: o.venceEn }));\n\nconst lineas = eventos.map(e => `${e.tipo} ${e.simbolo ?? ''}${e.precio !== undefined ? ' @' + e.precio : ''}${e.pnlUSD !== undefined ? ` (${e.pnlUSD >= 0 ? '+' : ''}${e.pnlUSD} USD)` : ''}${e.tipo === 'ORDEN_RECHAZADA' ? ': ' + e.detalle : ''}`);\nconst resumen = `${eventos.length ? lineas.join(' · ') : 'Sin eventos.'} | capital ${E.capital} USD | abiertas ${abiertas.length} | pendientes ${pendientes.length} | día: ${E.operacionesHoy} entradas, ${redondear(E.pnlHoyR, 2)} R`;\n\nreturn [{ json: { ok: true, generadoEn: iso(ahoraMs), resumen, eventos, diarioNuevo, abiertas, pendientes, avisos, estado: E } }];\n"
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "18e904f1-a6c8-4bf5-a862-eb6ce8a0083f",
+      "name": "Cerrar par",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3480,
+        480
+      ],
+      "parameters": {
+        "jsCode": "// Cierra el par: guarda el estado final, resume lo ocurrido y vacía la bandeja.\nconst sd = $getWorkflowStaticData('global');\nconst b = sd.bandeja ?? { simbolo: null, avisos: [] };\nconst x = $input.first().json ?? {};\nconst mensaje = e => (typeof e === 'string' ? e : (e?.message ?? JSON.stringify(e)));\n\nconst eventos = [...(b.eventosGestion ?? [])];\nif (x.error) {\n  b.avisos.push(`Falló al abrir la orden: ${mensaje(x.error)}`);\n} else if (Array.isArray(x.eventos)) {          // salida del Agente 4 al abrir la orden\n  sd.estado = x.estado;\n  eventos.push(...x.eventos);\n}\n\nconst senal = b.senal ?? {};\nconst rg = b.riesgo ?? {};\nconst texto = e => `${e.tipo}${e.precio !== undefined ? ' @' + e.precio : ''}${e.pnlUSD !== undefined ? ` (${e.pnlUSD >= 0 ? '+' : ''}${e.pnlUSD} USD)` : ''}${e.tipo === 'ORDEN_RECHAZADA' ? ': ' + e.detalle : ''}`;\n\nconst fila = {\n  simbolo: b.simbolo,\n  datosOk: b.datos?.ok ?? false,\n  precio: senal.precioActual ?? null,\n  tendenciaDiaria: senal.contextoDiario?.pendienteSMA20 ?? null,\n  edadUltimaVelaMin: b.edadUltimaVelaMin ?? null,\n  senal: senal.resumen ?? senal.motivo ?? null,\n  veredicto: rg.veredicto ?? null,\n  motivos: rg.motivos ?? [],\n  eventos: eventos.map(texto),\n  avisos: [...b.avisos, ...(b.datos?.errores ?? []), ...(rg.avisos ?? [])]\n};\nsd.bandeja = null;\nreturn [{ json: fila }];\n"
+      }
+    },
+    {
+      "id": "9641f86a-2077-426d-989f-d5cd20d71e19",
+      "name": "Pausa 30 s",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        3720,
+        480
+      ],
+      "webhookId": "99ae0d96-da67-4953-84a5-60e99f9efdc5",
+      "parameters": {
+        "amount": 30,
+        "unit": "seconds"
+      }
+    },
+    {
+      "id": "723a3573-1f63-432d-a717-3983c675b754",
+      "name": "Resultado final",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        800,
+        160
+      ],
+      "parameters": {
+        "jsCode": "// Junta todos los pares de la pasada y muestra el estado de la cuenta de prueba.\nconst sd = $getWorkflowStaticData('global');\nconst filas = $input.all().map(i => i.json);\nconst est = sd.estado ?? {};\nconst VIEJA_MIN = 15;\n\nconst sinDatos = filas.filter(f => !f.datosOk);\nconst viejos = filas.filter(f => f.datosOk && typeof f.edadUltimaVelaMin === 'number' && f.edadUltimaVelaMin > VIEJA_MIN).map(f => `${f.simbolo} (última vela de hace ${Math.round(f.edadUltimaVelaMin)} min)`);\nconst movimientos = filas.flatMap(f => f.eventos.map(e => `${f.simbolo}: ${e}`));\nconst rechazadas = filas.filter(f => f.veredicto === 'RECHAZADA').map(f => `${f.simbolo}: ${f.motivos.join('; ')}`);\nconst sinSenal = filas.filter(f => f.datosOk && f.veredicto === 'SIN_SENAL').map(f => `${f.simbolo} (tendencia diaria ${f.tendenciaDiaria ?? '?'})`);\nconst sinGestionar = [...(est.posiciones ?? []), ...(est.ordenesPendientes ?? [])]\n  .filter(p => !filas.some(f => f.simbolo === p.simbolo)).map(p => p.simbolo);\n\nsd.bandeja = null;\nreturn [{ json: {\n  pasadaNumero: sd.meta?.pasadas ?? null,\n  pares: filas.length,\n  movimientos,\n  rechazadas,\n  sinSenal,\n  conProblemas: sinDatos.map(f => `${f.simbolo ?? '?'}: ${f.senal ?? 'sin datos'} ${f.avisos.length ? '· ' + f.avisos.join(' | ') : ''}`.trim()),\n  datosViejos: viejos,\n  avisos: [\n    ...(sinGestionar.length ? [`Hay posiciones u órdenes en pares que ya no están en la lista y no se gestionan: ${[...new Set(sinGestionar)].join(', ')}`] : []),\n    ...((est.perdidasDesdeRevision ?? 0) >= 5 ? [`Hay ${est.perdidasDesdeRevision} pérdidas sin revisar: el Agente 3 no abrirá operaciones nuevas hasta que revises el diario (mira \"ultimasOperaciones\"). Cuando lo hayas hecho, pon REVISION_DEL_DIARIO_HECHA = true en \"Preparar pasada\", ejecuta una vez y vuelve a ponerlo en false.`] : [])\n  ],\n  cuenta: {\n    capital: est.capital ?? null,\n    operacionesHoy: est.operacionesHoy ?? 0, resultadoHoyR: est.pnlHoyR ?? 0,\n    gananciasSeguidas: est.gananciasSeguidas ?? 0, perdidasSeguidas: est.perdidasSeguidas ?? 0, perdidasSinRevisar: est.perdidasDesdeRevision ?? 0,\n    abiertas: (est.posiciones ?? []).map(p => ({ id: p.id, simbolo: p.simbolo, entrada: p.entrada, stop: p.stop, objetivo: p.objetivo, unidadesRestantes: p.unidadesRestantes, parcialHecha: p.parcialHecha })),\n    pendientes: (est.ordenesPendientes ?? []).map(o => ({ id: o.id, simbolo: o.simbolo, entrada: o.entrada, venceEn: o.venceEn }))\n  },\n  ultimasOperaciones: (est.diario ?? []).slice(-5),\n  detalle: filas\n} }];\n"
+      }
+    }
+  ],
+  "connections": {
+    "Ejecutar ahora (manual)": {
+      "main": [
+        [
+          {
+            "node": "Preparar pasada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cada 15 minutos": {
+      "main": [
+        [
+          {
+            "node": "Preparar pasada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar pasada": {
+      "main": [
+        [
+          {
+            "node": "Bucle por par",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bucle por par": {
+      "main": [
+        [
+          {
+            "node": "Resultado final",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Marcar par",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Marcar par": {
+      "main": [
+        [
+          {
+            "node": "Agente 1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Agente 1": {
+      "main": [
+        [
+          {
+            "node": "Guardar velas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guardar velas": {
+      "main": [
+        [
+          {
+            "node": "Agente 2 · Estrategia",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Agente 2 · Estrategia": {
+      "main": [
+        [
+          {
+            "node": "Preparar gestión",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar gestión": {
+      "main": [
+        [
+          {
+            "node": "Agente 4 · Gestionar posiciones",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Agente 4 · Gestionar posiciones": {
+      "main": [
+        [
+          {
+            "node": "Armar riesgo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Armar riesgo": {
+      "main": [
+        [
+          {
+            "node": "Agente 3 · Riesgo y conducta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Agente 3 · Riesgo y conducta": {
+      "main": [
+        [
+          {
+            "node": "Armar orden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Armar orden": {
+      "main": [
+        [
+          {
+            "node": "¿Hay orden aprobada?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Hay orden aprobada?": {
+      "main": [
+        [
+          {
+            "node": "Agente 4 · Abrir orden",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Cerrar par",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Agente 4 · Abrir orden": {
+      "main": [
+        [
+          {
+            "node": "Cerrar par",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cerrar par": {
+      "main": [
+        [
+          {
+            "node": "Pausa 30 s",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pausa 30 s": {
+      "main": [
+        [
+          {
+            "node": "Bucle por par",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/New_York"
+  }
+}

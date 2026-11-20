@@ -1,0 +1,36 @@
+# Sonda de compatibilidad con Alpaca (cuenta demo). Se lanza A MANO, con el mercado abierto (9:30 a 16:00 hora de Nueva York).
+# Compra 2 acciones de Ford, prueba las órdenes que usa el agente muy lejos del precio, y deja todo cerrado.
+name: Sonda de Alpaca (manual)
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: agente-trading
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  sonda:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Correr la sonda
+        env:
+          ALPACA_KEY_ID: ${{ secrets.ALPACA_KEY_ID }}
+          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+        run: node src/sonda.js
+      - name: Guardar resultado
+        if: always()
+        run: |
+          git config user.name "agente-trading"
+          git config user.email "agente-trading@users.noreply.github.com"
+          git add datos/sonda.json 2>/dev/null || true
+          if ! git diff --cached --quiet; then
+            git commit -m "sonda: resultado $(date -u +%Y-%m-%dT%H:%MZ)"
+            git pull --rebase --autostash || true
+            git push
+          fi
