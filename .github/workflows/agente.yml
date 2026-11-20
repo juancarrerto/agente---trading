@@ -28,7 +28,12 @@ jobs:
           ALPACA_KEY_ID: ${{ secrets.ALPACA_KEY_ID }}
           ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
           AGENTE_APAGADO: ${{ vars.AGENTE_APAGADO }}
-        run: node src/agente.js --ejecucion pasada
+        run: |
+          if [ -z "$ALPACA_KEY_ID" ] || [ -z "$ALPACA_SECRET_KEY" ]; then
+            echo "::notice::Faltan los Secrets ALPACA_KEY_ID y ALPACA_SECRET_KEY (Settings > Secrets and variables > Actions). El agente no corre todavía."
+            exit 0
+          fi
+          node src/agente.js --ejecucion pasada
       - name: Guardar estado y bitácora
         if: always()
         run: |
