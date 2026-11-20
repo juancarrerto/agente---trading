@@ -22,3 +22,7 @@
 {"ts":"2026-11-20T19:41:10.727Z","tipo":"PASADA","slot":"2026-11-20T19:30:00.000Z","hora_NY":"14:30","pares":0,"omitida":true,"veredictos":{},"ordenes":[],"eventosSombra":[],"errores":[],"capitalSombra":10000}
 {"ts":"2026-11-20T19:41:10.772Z","tipo":"ORDENES_EJECUTADAS_HOY","n":1,"ordenes":[{"simbolo":"F","lado":"buy","tipo":"market","qty":2,"precioPromedio":11.52,"hora":"2026-11-20T15:24:42.603566Z","cid":"ag-sonda-1795188280820-2"}]}
 {"ts":"2026-11-20T19:41:10.780Z","tipo":"FIN","motivo":"quieto","capitalDemo":"99999.96","minutos":0}
+{"ts":"2026-11-20T20:27:37.251Z","tipo":"INICIO","fecha":"2026-11-20","modo":"operar","ejecucion":"pasada","capitalDemo":"99999.96","simbolos":48}
+{"ts":"2026-11-20T20:27:38.159Z","tipo":"PASADA","slot":"2026-11-20T20:15:00.000Z","hora_NY":"15:15","pares":0,"omitida":true,"veredictos":{},"ordenes":[],"eventosSombra":[],"errores":[],"capitalSombra":10000}
+{"ts":"2026-11-20T20:27:38.270Z","tipo":"ORDENES_EJECUTADAS_HOY","n":1,"ordenes":[{"simbolo":"F","lado":"buy","tipo":"market","qty":2,"precioPromedio":11.52,"hora":"2026-11-20T15:24:42.603566Z","cid":"ag-sonda-1795188280820-2"}]}
+{"ts":"2026-11-20T20:27:38.315Z","tipo":"FIN","motivo":"quieto","capitalDemo":"99999.96","minutos":0}
