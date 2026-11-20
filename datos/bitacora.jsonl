@@ -1,0 +1,5 @@
+{"ts":"2026-11-20T15:35:21.721Z","tipo":"INICIO","fecha":"2026-11-20","modo":"operar","ejecucion":"pasada","capitalDemo":"99999.96","simbolos":48}
+{"ts":"2026-11-20T15:35:40.716Z","tipo":"CANDIDATAS","fecha":"2026-11-20","acciones":["UNH"],"conDatos":48}
+{"ts":"2026-11-20T15:35:40.906Z","tipo":"PASADA","slot":"2026-11-20T15:30:00.000Z","hora_NY":"10:30","pares":1,"omitida":false,"veredictos":{"SIN_SENAL":1},"ordenes":[],"eventosSombra":[],"errores":[],"capitalSombra":10000}
+{"ts":"2026-11-20T15:35:40.998Z","tipo":"ORDENES_EJECUTADAS_HOY","n":1,"ordenes":[{"simbolo":"F","lado":"buy","tipo":"market","qty":2,"precioPromedio":11.52,"hora":"2026-11-20T15:24:42.603566Z","cid":"ag-sonda-1795188280820-2"}]}
+{"ts":"2026-11-20T15:35:41.021Z","tipo":"FIN","motivo":"quieto","capitalDemo":"99999.96","minutos":0}
