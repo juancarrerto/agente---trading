@@ -35,3 +35,9 @@
 {"ts":"2026-11-20T21:35:13.223Z","tipo":"CIERRE_DE_SESION","motivo":"hora de cierre del agente: se cancelan órdenes y se cierran posiciones"}
 {"ts":"2026-11-20T21:35:14.756Z","tipo":"ORDENES_EJECUTADAS_HOY","n":1,"ordenes":[{"simbolo":"F","lado":"buy","tipo":"market","qty":2,"precioPromedio":11.52,"hora":"2026-11-20T15:24:42.603566Z","cid":"ag-sonda-1795188280820-2"}]}
 {"ts":"2026-11-20T21:35:14.764Z","tipo":"FIN","motivo":"cierre","capitalDemo":"99999.96","minutos":0}
+{"ts":"2026-11-23T15:43:13.039Z","tipo":"INICIO","fecha":"2026-11-23","modo":"operar","ejecucion":"pasada","capitalDemo":"99999.94","simbolos":48}
+{"ts":"2026-11-23T15:43:35.173Z","tipo":"CANDIDATAS","fecha":"2026-11-23","acciones":["C","COIN","CSCO","F","GE","GS","HOOD","MARA","MU","NVDA","RIVN","SMCI","SNAP","TSLA","WFC"],"conDatos":48}
+{"ts":"2026-11-23T15:43:36.660Z","tipo":"PASADA","slot":"2026-11-23T15:30:00.000Z","hora_NY":"10:30","pares":15,"omitida":false,"veredictos":{"SIN_SENAL":14,"APROBADA":1},"ordenes":[{"s":"MARA","tipo":"STOP_PENDIENTE","entrada":5.9785714,"stop":5.8978571,"objetivo":6.1803571,"unidades":619}],"eventosSombra":["ORDEN_PENDIENTE MARA @5.9785714"],"errores":[],"capitalSombra":10000}
+{"ts":"2026-11-23T15:43:37.435Z","tipo":"ORDEN_ENVIADA","simbolo":"MARA","rol":"entrada con stop","qty":619,"precio":5.9785714,"id":"6bb6423b-453b-4c3a-ace1-8cb453045387","estado":"pending_new"}
+{"ts":"2026-11-23T15:44:38.155Z","tipo":"ORDENES_EJECUTADAS_HOY","n":0,"ordenes":[]}
+{"ts":"2026-11-23T15:44:38.224Z","tipo":"FIN","motivo":"siguiente_pasada","capitalDemo":"99999.94","minutos":1}
