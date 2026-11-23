@@ -54,16 +54,17 @@ Interruptor sin tocar el código: en GitHub, *Settings → Secrets and variables
 * `datos/estado.json` estado entre ejecuciones · `datos/bitacora.jsonl` registro de todo lo que ocurre
 * `test/` pruebas con un Alpaca simulado (necesitan los CSV históricos, que no están en el repositorio)
 
-## Costo en GitHub
+## Cómo corre en GitHub
 
-El flujo corre ~26 veces al día de lunes a viernes; la mayoría terminan en menos de un minuto. El plan gratuito de GitHub para repositorios privados da 2.000 minutos al mes.
-Si se agotan, las ejecuciones dejan de arrancar (las órdenes ya puestas en Alpaca siguen protegidas con sus stops, pero el agente no las gestiona).
-En un repositorio público los minutos son ilimitados.
+Una sola ejecución por día de bolsa, que arranca antes de la apertura (7:53 a. m. de Nueva York en invierno) y vigila cada 20 segundos hasta que termina la
+ventana de entradas (11:15) y no queda nada abierto; si hay una operación abierta, sigue hasta que se cierra (como máximo unas 2 horas después). Dura entre 2 y 6 horas.
+Hay una segunda hora de arranque como respaldo por si GitHub omite la primera. Con el repositorio **público** los minutos son ilimitados; en uno privado
+(2.000 minutos al mes) no alcanzan.
 
-## Horario de verano
+*Por qué no cada 15 minutos:* GitHub no respeta con puntualidad los horarios automáticos frecuentes; el 20 de noviembre de 2026 corrió 9 veces en vez de ~26 y la
+primera una hora tarde, así que el agente solo evaluó 1 de las 7 ocasiones de entrada. El modo `pasada` (`--ejecucion pasada`) sigue en el código, pero no se usa.
 
-Las horas del flujo están en UTC para el horario de invierno de EE. UU. (hasta el 14 de marzo de 2027). En horario de verano hay que restar una hora
-a las horas de `.github/workflows/agente.yml` (14:45 → 13:45, `15-20` → `14-19`, `21:00` → `20:00`).
+El agente usa el reloj de Nueva York, así que el horario de verano no obliga a cambiar nada.
 
 ## Diferencias conocidas frente al backtest
 
