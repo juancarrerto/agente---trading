@@ -24,6 +24,8 @@ jobs:
     timeout-minutes: 355
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: main     # lo más reciente al empezar: una ejecución que esperó en cola no debe trabajar con el estado viejo en que se programó
       - name: Agente (modo continuo)
         env:
           ALPACA_KEY_ID: ${{ secrets.ALPACA_KEY_ID }}
