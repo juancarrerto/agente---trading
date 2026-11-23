@@ -1,13 +1,14 @@
-# Agente de trading en la cuenta DEMO de Alpaca: una ejecución cada 15 minutos en días de bolsa.
-# Hora de Nueva York = UTC-5 en invierno (hasta el 14 de marzo de 2027). En horario de verano de EE. UU. hay que restar una hora a estas
-# horas UTC (14:45 pasa a 13:45, etc.). Las ejecuciones fuera del horario de bolsa terminan en segundos y no hacen nada.
+# Agente de trading en la cuenta DEMO de Alpaca. Modo continuo: UNA ejecución por día de bolsa que arranca temprano y vigila cada 20 segundos
+# hasta que termina la ventana de entradas y no queda nada abierto (así evalúa todas las ocasiones aunque GitHub retrase el arranque).
+# El agente calcula las horas con el reloj de Nueva York, así que el horario de verano no obliga a tocar nada: estas horas UTC son
+# 7:53 a. m. (invierno) u 8:53 a. m. (verano) en Nueva York, antes de la apertura de las 9:30. La segunda es un respaldo por si GitHub omite la primera.
+# Requiere repositorio PÚBLICO (minutos ilimitados): una ejecución dura entre 2 y 6 horas.
 name: Agente de trading (demo)
 
 on:
   schedule:
-    - cron: '45 14 * * 1-5'
-    - cron: '*/15 15-20 * * 1-5'
-    - cron: '0 21 * * 1-5'
+    - cron: '53 12 * * 1-5'
+    - cron: '23 13 * * 1-5'
   workflow_dispatch:
 
 concurrency:
@@ -18,12 +19,12 @@ permissions:
   contents: write
 
 jobs:
-  pasada:
+  agente:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 355
     steps:
       - uses: actions/checkout@v4
-      - name: Una pasada del agente
+      - name: Agente (modo continuo)
         env:
           ALPACA_KEY_ID: ${{ secrets.ALPACA_KEY_ID }}
           ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
@@ -33,7 +34,7 @@ jobs:
             echo "::notice::Faltan los Secrets ALPACA_KEY_ID y ALPACA_SECRET_KEY (Settings > Secrets and variables > Actions). El agente no corre todavía."
             exit 0
           fi
-          node src/agente.js --ejecucion pasada
+          node src/agente.js --ejecucion diario
       - name: Guardar estado y bitácora
         if: always()
         run: |
