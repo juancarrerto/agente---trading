@@ -1,14 +1,18 @@
-# Agente de trading en la cuenta DEMO de Alpaca. Modo continuo: UNA ejecución por día de bolsa que arranca temprano y vigila cada 20 segundos
-# hasta que termina la ventana de entradas y no queda nada abierto (así evalúa todas las ocasiones aunque GitHub retrase el arranque).
-# El agente calcula las horas con el reloj de Nueva York, así que el horario de verano no obliga a tocar nada: estas horas UTC son
-# 7:53 a. m. (invierno) u 8:53 a. m. (verano) en Nueva York, antes de la apertura de las 9:30. La segunda es un respaldo por si GitHub omite la primera.
-# Requiere repositorio PÚBLICO (minutos ilimitados): una ejecución dura entre 2 y 6 horas.
+# Agente de trading en la cuenta DEMO de Alpaca. Modo continuo, en dos tramos por día de bolsa (GitHub corta cada ejecución a las 6 horas):
+#   * Mañana: arranca antes de la apertura (12:53 UTC = 7:53 a. m. en Nueva York en invierno) y vigila cada 20 segundos hasta terminar la ventana de las 9:35-11:15
+#     y quedar sin nada abierto; entonces se sale.
+#   * Tarde: arranca a las 16:50 UTC (11:50 a. m. en invierno) y espera hasta la ventana de las 14:15-15:30; cierra todo a las 15:55.
+# Cada hora tiene un respaldo por si GitHub omite la primera. El agente usa el reloj de Nueva York para todo, así que el horario de verano no obliga a tocar nada
+# (las ejecuciones arrancan una hora más tarde en reloj de Nueva York, y siguen siendo antes de cada ventana).
+# Requiere repositorio PÚBLICO (minutos ilimitados): entre las dos ejecuciones suman unas 6 horas por día.
 name: Agente de trading (demo)
 
 on:
   schedule:
     - cron: '53 12 * * 1-5'
     - cron: '23 13 * * 1-5'
+    - cron: '50 16 * * 1-5'
+    - cron: '20 17 * * 1-5'
   workflow_dispatch:
 
 concurrency:

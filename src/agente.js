@@ -110,6 +110,7 @@ async function ejecutar({ cliente, cfg: cfgUsuario, reloj, rutas, salida = conso
   async function sincronizar() {
     let real;
     try { real = await leerReal(cliente); } catch (e) { decir('ERROR_LECTURA', { error: e.message }); return null; }
+    if (cierreHecho) return { real, acciones: [] };               // después del cierre de sesión no se envía nada más (la sombra aún puede tener órdenes abiertas hasta la última pasada)
     const est = sombra.estado().estado ?? {};
     const acciones = planificar({ sombra: { pendientes: est.ordenesPendientes ?? [], posiciones: est.posiciones ?? [] }, real, registro: estado.espejo, fecha: fechaCorta, eventosPasada: ultimosEventos, ahoraMs: reloj.ahora() });
     if (acciones.length) await aplicar({ cliente, acciones, registro: estado.espejo, fecha: fechaCorta, modo: cfg.modo, esperar: ms => reloj.dormir(ms), bitacora: ({ tipo, ...resto }) => decir(tipo, resto), ahoraMs: reloj.ahora() });
@@ -134,10 +135,14 @@ async function ejecutar({ cliente, cfg: cfgUsuario, reloj, rutas, salida = conso
     return real.posiciones.size > 0 || real.ordenes.some(esNuestra);
   };
   const finVentanas = Math.max(...cfg.ventanas.map(([, f]) => minDe(f)));
+  // Una ejecución cubre la primera ventana que aún no había terminado cuando arrancó. Si al terminar esa ventana no queda nada abierto y la
+  // siguiente empieza dentro de mucho, se sale (GitHub corta cada ejecución a las 6 horas) y otra ejecución, programada más tarde, toma la siguiente.
+  const ESPERA_MAX_MIN = 45;
+  const ventanaPropia = [...cfg.ventanas].sort((a, b) => minDe(a[1]) - minDe(b[1])).find(([, f]) => minDe(f) > hhmm(reloj.ahora()));
 
   // ----- Bucle principal
   const retraso = cfg.retrasoPasadaSeg * 1000;
-  let terminado = null, primeraVuelta = true, inicioMs = reloj.ahora();
+  let terminado = null, primeraVuelta = true, cierreHecho = false, inicioMs = reloj.ahora();
   while (!terminado) {
     ahora = reloj.ahora();
     const debidas = ranuras.filter(t => t + retraso <= ahora && t > estado.ultimaPasadaMs && t > aperturaMs);
@@ -149,12 +154,20 @@ async function ejecutar({ cliente, cfg: cfgUsuario, reloj, rutas, salida = conso
     primeraVuelta = false;
     const sync = await sincronizar();
     ahora = reloj.ahora();
-    if (ahora >= cierreDuroMs) { await cierreDuro(); terminado = 'cierre'; break; }
+    if (ahora >= cierreDuroMs) {                                 // cierre de sesión: se cierra todo y se espera la última pasada para que la sombra registre esos cierres
+      if (!cierreHecho) { await cierreDuro(); cierreHecho = true; }
+      const ultimaRanura = ranuras[ranuras.length - 1];
+      if (estado.ultimaPasadaMs >= ultimaRanura || ahora > ultimaRanura + 5 * MIN) { terminado = 'cierre'; break; }
+      await reloj.dormir(cfg.intervaloVigilanciaSeg * 1000);
+      continue;
+    }
     const ultima = ranuras[ranuras.length - 1];
     const siguiente = ranuras.find(t => t + retraso > ahora);
     const activo = hayAlgo(sync?.real);
     if (cfg.ejecucion === 'diario') {
-      if (!activo && (!siguiente || hhmm(ahora) >= finVentanas)) { terminado = 'sin_nada_que_vigilar'; break; }      // pasada la ventana de entradas y sin nada abierto, no queda nada por hacer hoy
+      if (!activo && (!siguiente || hhmm(ahora) >= finVentanas)) { terminado = 'sin_nada_que_vigilar'; break; }      // pasada la última ventana de entradas y sin nada abierto, no queda nada por hacer hoy
+      const aperturaSig = cfg.ventanas.map(([i]) => minDe(i)).filter(x => x > hhmm(ahora)).sort((a, b) => a - b)[0];
+      if (!activo && ventanaPropia && hhmm(ahora) >= minDe(ventanaPropia[1]) && aperturaSig !== undefined && aperturaSig - hhmm(ahora) > ESPERA_MAX_MIN) { terminado = 'entre_ventanas'; break; }
     } else {                                                    // "pasada": se sale cuando no hay nada que vigilar o llega la siguiente pasada
       if (!activo) { terminado = 'quieto'; break; }
       if (siguiente && ahora >= siguiente - 30000) { terminado = 'siguiente_pasada'; break; }

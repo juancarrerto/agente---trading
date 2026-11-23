@@ -56,15 +56,21 @@ Interruptor sin tocar el código: en GitHub, *Settings → Secrets and variables
 
 ## Cómo corre en GitHub
 
-Una sola ejecución por día de bolsa, que arranca antes de la apertura (7:53 a. m. de Nueva York en invierno) y vigila cada 20 segundos hasta que termina la
-ventana de entradas (11:15) y no queda nada abierto; si hay una operación abierta, sigue hasta que se cierra (como máximo unas 2 horas después). Dura entre 2 y 6 horas.
-Hay una segunda hora de arranque como respaldo por si GitHub omite la primera. Con el repositorio **público** los minutos son ilimitados; en uno privado
-(2.000 minutos al mes) no alcanzan.
+Dos ejecuciones por día de bolsa, porque GitHub corta cada una a las 6 horas:
+
+* **Mañana:** arranca antes de la apertura (7:53 a. m. de Nueva York en invierno) y vigila cada 20 segundos durante la ventana de entradas de las 9:35 a 11:15. Si hay una
+  operación abierta sigue hasta que se cierre; si no, se sale y deja el turno a la siguiente.
+* **Tarde:** arranca hacia las 11:50 a. m., espera hasta la ventana de las 14:15 a 15:30 y a las 15:55 cierra todo lo que quede abierto.
+
+Cada una tiene una segunda hora de arranque como respaldo por si GitHub omite la primera. Con el repositorio **público** los minutos son ilimitados; en uno privado
+(2.000 minutos al mes) no alcanzan. Las ventanas se cambian en `config/agente.json` (`ventanas`).
 
 *Por qué no cada 15 minutos:* GitHub no respeta con puntualidad los horarios automáticos frecuentes; el 20 de noviembre de 2026 corrió 9 veces en vez de ~26 y la
 primera una hora tarde, así que el agente solo evaluó 1 de las 7 ocasiones de entrada. El modo `pasada` (`--ejecucion pasada`) sigue en el código, pero no se usa.
 
 El agente usa el reloj de Nueva York, así que el horario de verano no obliga a cambiar nada.
+
+**Nota sobre la tarde:** en el backtest las entradas de la tarde salieron peores (R medio de -0,27 contra -0,14 en la mañana). Se agregaron a petición del usuario para ver qué pasa.
 
 ## Diferencias conocidas frente al backtest
 

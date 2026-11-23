@@ -32,6 +32,11 @@ const rutas = { estado: path.join(salida, 'estado.json'), bitacora: path.join(sa
       sim = nyAUtc(y, m, d, 9, 40);
       fake._procesar(); fake.proc = null;
       r = await ejecutar({ cliente: fake, cfg, reloj, rutas, salida: () => {} });
+      for (let k = 0; k < 3 && r.terminado === 'entre_ventanas'; k++) {     // el flujo de GitHub arranca otra ejecución más tarde para la ventana siguiente
+        sim = Math.max(sim, nyAUtc(y, m, d, 11, 50));
+        fake._procesar();
+        r = await ejecutar({ cliente: fake, cfg, reloj, rutas, salida: () => {} });
+      }
     }
     if (i % 10 === 9 || i === dias.length - 1) console.error(`día ${i + 1}/${dias.length} ${f} · ${r.terminado} · ${((Date.now() - t0) / 1000).toFixed(0)} s`);
   }
