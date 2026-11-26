@@ -128,3 +128,4 @@
 {"ts":"2026-11-25T20:30:26.407Z","tipo":"PASADA","slot":"2026-11-25T20:30:00.000Z","hora_NY":"15:30","pares":0,"omitida":true,"veredictos":{},"ordenes":[],"eventosSombra":[],"errores":[],"capitalSombra":9850.781933}
 {"ts":"2026-11-25T20:30:26.600Z","tipo":"ORDENES_EJECUTADAS_HOY","n":0,"ordenes":[]}
 {"ts":"2026-11-25T20:30:26.675Z","tipo":"FIN","motivo":"sin_nada_que_vigilar","capitalDemo":"99890.1","minutos":0}
+{"ts":"2026-11-26T14:00:03.105Z","tipo":"SIN_MERCADO","fecha":"2026-11-26"}
