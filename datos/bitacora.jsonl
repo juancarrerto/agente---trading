@@ -129,3 +129,4 @@
 {"ts":"2026-11-25T20:30:26.600Z","tipo":"ORDENES_EJECUTADAS_HOY","n":0,"ordenes":[]}
 {"ts":"2026-11-25T20:30:26.675Z","tipo":"FIN","motivo":"sin_nada_que_vigilar","capitalDemo":"99890.1","minutos":0}
 {"ts":"2026-11-26T14:00:03.105Z","tipo":"SIN_MERCADO","fecha":"2026-11-26"}
+{"ts":"2026-11-26T14:32:33.452Z","tipo":"SIN_MERCADO","fecha":"2026-11-26"}
