@@ -162,3 +162,7 @@
 {"ts":"2026-11-27T20:15:22.315Z","tipo":"PASADA","slot":"2026-11-27T20:15:00.000Z","hora_NY":"15:15","pares":0,"omitida":true,"veredictos":{},"ordenes":[],"eventosSombra":[],"errores":[],"capitalSombra":9850.781933}
 {"ts":"2026-11-27T20:30:05.993Z","tipo":"ORDENES_EJECUTADAS_HOY","n":0,"ordenes":[]}
 {"ts":"2026-11-27T20:30:06.017Z","tipo":"FIN","motivo":"sin_nada_que_vigilar","capitalDemo":"99890.1","minutos":255}
+{"ts":"2026-11-27T20:30:22.127Z","tipo":"INICIO","fecha":"2026-11-27","modo":"operar","ejecucion":"diario","capitalDemo":"99890.1","simbolos":48}
+{"ts":"2026-11-27T20:30:22.340Z","tipo":"PASADA","slot":"2026-11-27T20:30:00.000Z","hora_NY":"15:30","pares":0,"omitida":true,"veredictos":{},"ordenes":[],"eventosSombra":[],"errores":[],"capitalSombra":9850.781933}
+{"ts":"2026-11-27T20:30:22.489Z","tipo":"ORDENES_EJECUTADAS_HOY","n":0,"ordenes":[]}
+{"ts":"2026-11-27T20:30:22.558Z","tipo":"FIN","motivo":"sin_nada_que_vigilar","capitalDemo":"99890.1","minutos":0}
